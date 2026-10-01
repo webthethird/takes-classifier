@@ -1,0 +1,12 @@
+# Build-script approvals. pnpm 10+ blocks dependency build scripts by default,
+# and pnpm 11 treats an unapproved script as a hard install error — which fails
+# every `pnpm <script>` here, since pnpm runs a dependency check first. pnpm
+# auto-generates this block as a stub ("set this to true or false"); leaving it
+# unanswered is what breaks the repo. All three are transitive deps we need:
+#   esbuild     — tsx's bundler; links the platform binary
+#   sharp       — pulled in by @xenova/transformers; fetches libvips
+#   protobufjs  — onnxruntime's model parser; runs a codegen step
+allowBuilds:
+  esbuild: true
+  protobufjs: true
+  sharp: true
