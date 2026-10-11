@@ -27,8 +27,15 @@ const FLUSH_EVERY = 5;
 type Entry = { version: string; result: unknown };
 type CacheFile = Record<string, Entry>;
 
-function keyFor(text: string): string {
-  return createHash("sha256").update(text).digest("hex").slice(0, 32);
+/// Parent text is part of the key: the same reply classifies differently with
+/// and without its thread context, which is the entire point of the thread
+/// pull. Keying on text alone would serve a context-free result for a cast we
+/// later re-classified with its parent.
+function keyFor(text: string, parentText?: string): string {
+  return createHash("sha256")
+    .update(`${parentText ?? ""}\u0000${text}`)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 export class ClassifyCache {
@@ -50,8 +57,8 @@ export class ClassifyCache {
 
   /// Returns the cached result if present and version-current, else calls the
   /// classifier and stores the result.
-  async classify(text: string): Promise<ClassifyResult> {
-    const k = keyFor(text);
+  async classify(text: string, parentText?: string): Promise<ClassifyResult> {
+    const k = keyFor(text, parentText);
     const hit = this.data[k];
     if (hit && hit.version === PROMPT_VERSION) {
       const parsed = ClassifyResult.safeParse(hit.result);
@@ -63,7 +70,7 @@ export class ClassifyCache {
     }
 
     this.misses++;
-    const result = await classifyCast({ text });
+    const result = await classifyCast({ text, parentText });
     this.data[k] = { version: PROMPT_VERSION, result };
     if (++this.dirty >= FLUSH_EVERY) this.flush();
     return result;

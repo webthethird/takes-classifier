@@ -8,7 +8,8 @@
     "cluster": "tsx src/cli/cluster.ts",
     "typecheck": "tsc --noEmit",
     "feed": "tsx src/cli/feed.ts",
-    "render-feed": "tsx src/cli/render-feed.ts"
+    "render-feed": "tsx src/cli/render-feed.ts",
+    "probe-neynar": "tsx src/cli/probe-neynar.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

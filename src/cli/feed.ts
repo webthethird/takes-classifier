@@ -25,7 +25,8 @@ import { writeFileSync } from "node:fs";
 import { ClassifyCache } from "../lib/cache.js";
 import { embed } from "../lib/embed.js";
 import { findMatch } from "../lib/match.js";
-import { fileSource, type RawCast } from "../lib/corpus.js";
+import { fileSource, type CastSource, type RawCast } from "../lib/corpus.js";
+import { neynarSource } from "../lib/neynar.js";
 import type { Claim, IndexedMarket } from "../lib/schema.js";
 
 /* ───────────────────────────── Scoring ─────────────────────────────── */
@@ -96,21 +97,76 @@ async function main() {
   let limit = Infinity;
   let top = 20;
   let matchAspect = false;
+  const channels: string[] = [];
+  let minReplies = 2;
+  let candidates = 100;
+  let minChars = 40;
+  let pages = 1;
+  const searches: string[] = [];
+  let trendingWindow: "1d" | "7d" | "30d" | undefined;
+  let maxThreads = 15;
+  let replyDepth = 1;
   const paths: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--limit") limit = parseInt(args[++i], 10);
     else if (args[i] === "--top") top = parseInt(args[++i], 10);
     else if (args[i] === "--aspect") matchAspect = true;
+    else if (args[i] === "--channel") channels.push(args[++i]);
+    else if (args[i] === "--candidates") candidates = parseInt(args[++i], 10);
+    else if (args[i] === "--min-chars") minChars = parseInt(args[++i], 10);
+    else if (args[i] === "--pages") pages = parseInt(args[++i], 10);
+    else if (args[i] === "--search") searches.push(args[++i]);
+    else if (args[i] === "--trending-channels")
+      trendingWindow = (args[++i] as "1d" | "7d" | "30d") ?? "1d";
+    else if (args[i] === "--min-replies") minReplies = parseInt(args[++i], 10);
+    else if (args[i] === "--max-threads") maxThreads = parseInt(args[++i], 10);
+    else if (args[i] === "--reply-depth") replyDepth = parseInt(args[++i], 10);
     else paths.push(args[i]);
   }
-  if (paths.length === 0) {
-    console.error("Usage: pnpm feed [--limit N] [--top N] <corpus.json...>");
+
+  const live = channels.length > 0 || trendingWindow !== undefined || searches.length > 0;
+  if (paths.length === 0 && !live) {
+    console.error(
+      "Usage:\n" +
+        "  pnpm feed [--top N] <corpus.json...>              static corpora\n" +
+        "  pnpm feed --channel base --channel crypto         live channels (repeatable)\n" +
+        "  pnpm feed --trending-channels 1d                 discover channels dynamically\n" +
+        "  pnpm feed --search \"unpopular take\"              semantic search, network-wide\n" +
+        "Live options: --candidates N --min-replies N --min-chars N --max-threads N --reply-depth N\n" +
+        "Live sources need NEYNAR_API_KEY.",
+    );
     process.exit(1);
   }
 
+  const sources: CastSource[] = paths.map(fileSource);
+  if (live) {
+    const apiKey = process.env.NEYNAR_API_KEY;
+    if (!apiKey) {
+      console.error(
+        "NEYNAR_API_KEY is not set. Add it to .env (get a key at https://neynar.com).",
+      );
+      process.exit(1);
+    }
+    sources.push(
+      neynarSource({
+        apiKey,
+        feed: { kind: "channel", channelIds: channels },
+        candidates,
+        minReplies,
+        minChars,
+        pages,
+        searches,
+        trendingChannels: trendingWindow
+          ? { window: trendingWindow, limit: 10 }
+          : undefined,
+        maxThreads,
+        replyDepth,
+      }),
+    );
+  }
+
   const casts: RawCast[] = [];
-  for (const p of paths) {
-    const src = fileSource(p);
+  for (const src of sources) {
     const loaded = await src.load(limit);
     console.error(`[feed] ${src.name}: ${loaded.length} casts`);
     casts.push(...loaded);
@@ -131,7 +187,7 @@ async function main() {
     const cast = casts[i];
     let result;
     try {
-      result = await cache.classify(cast.text);
+      result = await cache.classify(cast.text, cast.parent_text);
       classified++;
     } catch (e) {
       failed++;
@@ -213,6 +269,7 @@ async function main() {
     generated_at: new Date().toISOString(),
     sources: paths,
     match_aspect: matchAspect,
+    casts_with_thread_context: casts.filter((c) => c.parent_text).length,
     total_casts: casts.length,
     classified,
     failed,

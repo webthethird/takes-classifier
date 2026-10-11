@@ -22,6 +22,13 @@ export type RawCast = {
   fid?: number;
   channel?: string | null;
   parent_hash?: string | null;
+  /// Text of the cast this one replies to. This is the field the whole
+  /// thread-pull exists for: `classifyCast` takes it as `parentText`, and
+  /// without it a reply like "nah, totally disagree" classifies as noise
+  /// instead of as a stance on the parent's claim.
+  parent_text?: string;
+  /// Hash of the thread root, so feed consumers can group a conversation.
+  thread_root_hash?: string;
   /// Permalink, when the source can build one.
   url?: string;
   /// Engagement. Absent on static corpora; populated by live sources.
@@ -55,31 +62,3 @@ export function fileSource(path: string): CastSource {
   };
 }
 
-/// Live Farcaster casts. Not implemented yet — this is the slot.
-///
-/// Implementation notes for when we wire it up:
-///   - **Pull threads, not search results.** This is the main finding from the
-///     first run over data/: 348 keyword-searched casts produced 93 distinct
-///     questions but only ONE with people on both sides. Isolated casts rarely
-///     argue with each other — the disagreement lives in reply threads. Fetch a
-///     cast *with its replies* and pass the parent via `classifyCast`'s
-///     `parentText`, which has been supported all along and which the static
-///     corpora can't exercise because they carry no thread context.
-///   - Pull from a ranked/trending endpoint, not the firehose. We want casts
-///     people already reacted to, not every cast ever written.
-///   - Pre-filter on engagement BEFORE classifying. A cast with replies or
-///     quote-casts is, by definition, one somebody disagreed with. This is
-///     what keeps the Claude bill proportional to signal instead of volume.
-///   - Populate `replies` / `recasts` / `likes` so the ranker can use the
-///     contestedness boost, and `url` so feed rows link back to the source.
-///   - Dedupe across runs by cast hash; the in-run dedupe here isn't enough
-///     once this is on a schedule.
-export function neynarSource(_opts: {
-  apiKey: string;
-  feed: "trending" | { channel: string };
-  minReplies?: number;
-}): CastSource {
-  throw new Error(
-    "neynarSource not implemented — validate the flow on fileSource first",
-  );
-}
