@@ -35,6 +35,9 @@ export type Member = {
   /// "claim" = question extracted from this cast (stage 1).
   /// "stance" = cast judged against an existing question (stage 2).
   via: "claim" | "stance";
+  /// Stage 2 only: the model's reading of what the parent cast asserts.
+  /// Kept so every stance decision can be audited against its inputs.
+  stance_parent_says?: string;
 };
 
 export type Cluster = {

@@ -22,7 +22,7 @@ import { ClassifyResult, StanceResult } from "./schema.js";
 /// cached results — they're independent calls with independent schemas.
 /// v3 added `externally_resolvable` to Claim.
 const CLASSIFY_VERSION = "v4";
-const STANCE_VERSION = "v1";
+const STANCE_VERSION = "v3";
 const CACHE_PATH = ".cache/classify.json";
 /// Flush every N new entries. Small enough that a kill loses almost nothing,
 /// large enough to avoid hammering the disk.
@@ -80,14 +80,18 @@ export class ClassifyCache {
     return result;
   }
 
-  /// Stage 2, cached on (question, reply) — the root text is implied by the
-  /// question and including it would miss cache on trivial root edits.
+  /// Stage 2, cached on (question, parent, same-author, reply). Parent and
+  /// same-author are part of the key because they change the answer: the same
+  /// reply means different things under a different parent.
   async stance(
     question: string,
     rootText: string,
     replyText: string,
+    parentText?: string,
+    sameAuthor = false,
   ): Promise<StanceResult> {
-    const k = "s:" + keyFor(replyText, question);
+    const k =
+      "s:" + keyFor(replyText, `${question}\u0001${parentText ?? ""}\u0001${sameAuthor}`);
     const hit = this.data[k];
     if (hit && hit.version === STANCE_VERSION) {
       const parsed = StanceResult.safeParse(hit.result);
@@ -97,7 +101,7 @@ export class ClassifyCache {
       }
     }
     this.misses++;
-    const result = await classifyStance({ question, rootText, replyText });
+    const result = await classifyStance({ question, rootText, replyText, parentText, sameAuthor });
     this.data[k] = { version: STANCE_VERSION, result };
     if (++this.dirty >= FLUSH_EVERY) this.flush();
     return result;

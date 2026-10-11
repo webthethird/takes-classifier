@@ -244,6 +244,54 @@ disagreement corroborates, it doesn't dominate.
 are common on Farcaster, and counting them inflated the first measurement from
 4 to 7.
 
+### Stage 2 reads the actual parent, and reasons before it answers
+
+Two bugs made the classifier invent disagreements that weren't there. Both
+showed up as authors apparently contradicting themselves in their own threads.
+
+**Replies were judged against the root, not their real parent.** Threads nest,
+and a reply three levels down is answering a sibling reply. "Maybe on the very
+surface they do, but otherwise not" is meaningless until you know what "they
+do" refers to — read against the root it looks like negation, read against its
+actual parent it's agreement. `parent_text` was in the data all along;
+`classifyStance` just never received it. It now gets the question, the root,
+the immediate parent, and whether the reply is by the root's author.
+
+Agreement and opposition are transitive, and the prompt now says so
+explicitly: agreeing with a parent that opposes the root means agreeing with
+the root. Agreement markers ("yeah exactly", "this", "I like that you...") and
+restating the parent's argument in new words are called out, because those
+were being read as opposition.
+
+**Field order in the output schema was hiding the reasoning.** Structured
+output is emitted in schema order, so with `stance` declared first the model
+committed to a verdict and then rationalised it. `StanceResult` now asks for
+`parent_says` and `reason` *before* `stance`. That reorder alone flipped three
+stubborn misclassifications to correct — it was worth more than any prompt
+wording change.
+
+Self-replies get an explicit prior: an author elaborating in their own thread
+is defending their position, not reversing it. Piling on more argument for the
+same side is not a reversal however differently it's phrased.
+
+Measured on one live pull, the four known-bad decisions went to correct, and
+self-contradicting replies fell from 3 to 2 of 33 stage-2 calls.
+
+### Auditing stance decisions
+
+Counts hide inverted stances; reading them doesn't. `pnpm audit-stances`
+prints every stage-2 decision with the inputs that produced it:
+
+```sh
+pnpm audit-stances -- feed_<ts>.json           # all decisions
+pnpm audit-stances -- --self feed_<ts>.json    # self-replies only
+```
+
+Each row shows what the reply was responding to, what the model thought the
+parent asserted, the stance, and why — and flags any case where an author
+contradicts their own root, which is the shape of the original bug. Note the
+`--` : `pnpm audit` is a built-in pnpm command, so the flags need separating.
+
 ### Two layouts, one dataset
 
 `render-feed.ts` takes `--layout question|cast` and renders the same report

@@ -94,18 +94,29 @@ export type MatchResult = {
 // disjoint cluster, which is exactly what the first live runs produced.
 
 export const StanceResult = z.object({
+  // Field order is load-bearing. Structured output is emitted in schema
+  // order, so putting the analysis BEFORE the verdict gives the model room to
+  // reason; with stance first it commits to an answer and then rationalises.
+  // Reordering these alone fixed inverted stances on nested replies.
+  parent_says: z
+    .string()
+    .describe(
+      "In one short sentence: what does the PARENT cast assert in relation to the question — does it support yes, support no, or take no position? Say 'parent is the root' if they are the same.",
+    ),
+  reason: z
+    .string()
+    .describe(
+      "One or two sentences: does the reply agree or disagree with the parent, and what does that imply for the question? Agreement with a parent that opposes yes means the reply also opposes yes.",
+    ),
   stance: z
     .enum(["yes", "no", "off_topic"])
     .describe(
-      "Where this reply lands on the GIVEN question. 'yes' agrees with the question's positive framing, 'no' rejects it. 'off_topic' when the reply takes no position on this specific question — jokes, tangents, greetings, or a stance on something else entirely.",
+      "Where the reply lands on the GIVEN question, following from the reasoning above. 'off_topic' when it takes no position on this specific question.",
     ),
   confidence: z
     .number()
     .min(0)
     .max(1)
     .describe("Confidence in the stance call."),
-  reason: z
-    .string()
-    .describe("One short sentence: what in the reply indicates this stance."),
 });
 export type StanceResult = z.infer<typeof StanceResult>;

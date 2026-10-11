@@ -30,6 +30,7 @@ import { neynarSource } from "../lib/neynar.js";
 import type { Claim, IndexedMarket } from "../lib/schema.js";
 import {
   authorCounts,
+  identity,
   pickOpposingReply,
   pickRepresentative,
   scoreCluster,
@@ -265,7 +266,16 @@ async function main() {
 
     for (const reply of thread.replies) {
       try {
-        const st = await cache.stance(primary.claim.question, root.text, reply.text);
+        const st = await cache.stance(
+          primary.claim.question,
+          root.text,
+          reply.text,
+          // The cast this reply actually answers — frequently a sibling
+          // reply, not the root. Judging without it was producing inverted
+          // stances on nested replies.
+          reply.parent_text,
+          identity(reply) === identity(root),
+        );
         stanceCalls++;
         if (st.stance === "off_topic") {
           offTopic++;
@@ -282,6 +292,7 @@ async function main() {
           confidence: st.confidence,
           challenge_reason: st.reason,
           via: "stance",
+          stance_parent_says: st.parent_says,
         });
       } catch (e) {
         failed++;

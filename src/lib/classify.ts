@@ -213,33 +213,83 @@ export async function classifyCast(opts: {
 const STANCE_PROMPT = `You decide where a reply lands on an existing YES/NO question in a Farcaster thread.
 
 You are given:
-- QUESTION: a canonical YES/NO question already extracted from the thread's root cast
-- ROOT: the cast that question came from
-- REPLY: someone's reply in that thread
+- QUESTION: a canonical YES/NO question extracted from the thread's ROOT cast
+- ROOT: the cast that question came from, and its author's stance
+- PARENT: the cast this reply is directly responding to. **This is often NOT the root** — threads nest, and a reply three levels down may be answering another reply.
+- REPLY: the cast to classify
+- SAME_AUTHOR: whether the reply is by the root's author
 
-Answer only: does the REPLY support YES, support NO, or take no position on THIS question?
+Answer only: does the REPLY support YES, support NO, or take no position on the QUESTION?
 
-## Rules
+## Work in two steps
 
-- **Judge against the given question only.** The reply may raise other interesting points. Ignore them. If the reply argues something adjacent but takes no position on this question, that is off_topic.
-- **Disagreement with the root usually means the opposite stance from the root.** If the root asserts YES and the reply pushes back, that is NO. Read hedges carefully: "maybe on the surface, but otherwise not really" is disagreement.
-- **Agreement that adds detail is still a stance.** "Exactly, and it's worse than that" is the same side as the root.
-- **Partial agreement:** pick the side the reply leans toward. Only use off_topic when there is genuinely no lean.
-- **off_topic** covers: greetings, jokes with no position, questions asking for clarification, pure tangents, replies about a different claim, and self-promotion.
-- Sarcasm and irony mean the opposite of the literal words. Read the intent.
+**Step 1 — what is the reply responding to?** Read PARENT. If PARENT is not the
+root, the reply's wording is calibrated to the parent, not to the question.
+"Maybe on the surface they do, but otherwise not" means nothing until you know
+what "they do" refers to.
+
+**Step 2 — translate that into a stance on the QUESTION.** Agreement is
+transitive and so is opposition:
+- agrees with a parent that supports YES -> YES
+- agrees with a parent that opposes YES -> NO
+- disagrees with a parent that supports YES -> NO
+
+Never map "disagrees with the parent" straight to "opposes the root". If the
+parent was itself arguing against the root, disagreeing with the parent means
+AGREEING with the root.
+
+## Agreement markers
+
+These almost always mean the SAME side as whatever they respond to, and they
+are the most common thing to get wrong:
+"yeah exactly", "this", "agreed", "100%", "facts", "well said", "I like that
+you...", "good point", "right, and...", "exactly, plus..."
+
+A reply that restates the parent's argument in its own words is agreeing, even
+with no marker. "Listings are just plumbing, they shift access but fundamentals
+stay the same" following a cast that called listings plumbing is AGREEMENT.
+Adding detail, examples or evidence to a claim supports it — it does not oppose it.
+
+## When SAME_AUTHOR is true
+
+The root's author replying in their own thread is almost always elaborating,
+defending, or adding evidence for the position they already took. Assume they
+hold their original stance unless the reply contains an explicit reversal —
+"actually I was wrong", "changed my mind", "fair point, I retract".
+
+Piling on more argument for the same side is NOT a reversal, however
+differently it is phrased. An author saying "this does nothing, less than
+nothing" after arguing something is insignificant is restating their position,
+not flipping it.
+
+## Other rules
+
+- **Judge against the given question only.** A reply may raise adjacent points.
+  If it takes no position on THIS question, that is off_topic.
+- **Partial agreement:** pick the side it leans toward. Use off_topic only when
+  there is genuinely no lean.
+- **off_topic** covers greetings, jokes without a position, clarifying
+  questions, pure tangents, claims about a different subject, self-promotion.
+- Sarcasm and irony mean the opposite of the literal words.
 
 ## Calibration
 
 Most replies in a real thread are off_topic. Do not manufacture stances to be
-agreeable — a thread where three of fifteen replies actually engage with the
-question is normal and useful. A false stance pollutes the market with people
-who never took a side.`;
+agreeable — a thread where three of fifteen replies engage with the question is
+normal and useful. A false stance puts someone in a market they never joined,
+and a false OPPOSING stance invents a disagreement that does not exist, which
+is worse.`;
 
 /// Stage 2: classify a reply's stance on an already-extracted question.
 export async function classifyStance(opts: {
   question: string;
   rootText: string;
   replyText: string;
+  /// The cast this reply directly answers. Often a sibling reply rather than
+  /// the root — without it, nested replies are judged out of context and
+  /// routinely get the opposite stance.
+  parentText?: string;
+  sameAuthor?: boolean;
 }): Promise<StanceResult> {
   const response = await client.messages.parse({
     model: "claude-haiku-4-5",
@@ -257,6 +307,8 @@ export async function classifyStance(opts: {
         content:
           `<question>${opts.question}</question>\n\n` +
           `<root>${opts.rootText}</root>\n\n` +
+          `<parent>${opts.parentText ?? opts.rootText}</parent>\n\n` +
+          `<same_author>${opts.sameAuthor ? "yes" : "no"}</same_author>\n\n` +
           `<reply>${opts.replyText}</reply>`,
       },
     ],
