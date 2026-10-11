@@ -78,3 +78,29 @@ export type MatchResult = {
   market: IndexedMarket;
   similarity: number;
 };
+
+// ── Stage 2: stance of a reply on an existing question ──────────────────
+//
+// Separate from ClassifyResult on purpose. Stage 1 asks "what question does
+// this cast raise?", which is the wrong question for a reply — a reply to
+// "Do Trump's supporters clap for anything?" saying "maybe on the surface,
+// but otherwise no" is a NO on that question, not a new market about MAGA
+// intelligence. Asking the model to generate a question for it guarantees a
+// disjoint cluster, which is exactly what the first live runs produced.
+
+export const StanceResult = z.object({
+  stance: z
+    .enum(["yes", "no", "off_topic"])
+    .describe(
+      "Where this reply lands on the GIVEN question. 'yes' agrees with the question's positive framing, 'no' rejects it. 'off_topic' when the reply takes no position on this specific question — jokes, tangents, greetings, or a stance on something else entirely.",
+    ),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe("Confidence in the stance call."),
+  reason: z
+    .string()
+    .describe("One short sentence: what in the reply indicates this stance."),
+});
+export type StanceResult = z.infer<typeof StanceResult>;

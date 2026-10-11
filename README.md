@@ -175,6 +175,37 @@ So the conclusion for live data is: pull threads, not search results. A spicy
 cast plus its replies is a pre-packaged contested cluster. That's recorded in
 `neynarSource`'s implementation notes in `src/lib/corpus.ts`.
 
+### Two-stage classification
+
+The thread pull alone did **not** produce contested markets — three live runs
+with progressively better candidates all returned zero both-sides clusters.
+The cause was visible in the thread data:
+
+```
+ROOT  [yes] "I could say the stupidest things and you'd clap"
+            -> "Do Trump's supporters uncritically praise him regardless?"
+REPLY [no]  "Maybe on the very surface they do, but otherwise not"
+            -> "Are MAGA supporters generally intelligent?"      <-- new market
+```
+
+The reply is a direct rebuttal, but stage 1 asks "what question does this cast
+raise?" — the wrong question for a reply. Passing `parentText` as context
+doesn't help, because the *task* is wrong. So replies get a different task:
+
+- **Stage 1** (`classifyCast`) — thread root → canonical question
+- **Stage 2** (`classifyStance`) — each reply, *given that question* → yes / no / off_topic
+
+Stage 2 is prompted to use `off_topic` freely; most replies in a real thread
+take no position, and a manufactured stance pollutes a market with people who
+never picked a side. Observed rate is about a quarter off-topic.
+
+Result on the same live pull: **0 → 4 contested markets**, multi-member
+clusters 1 → 20.
+
+Note "contested" requires *different people* on opposite sides. Self-replies
+are common on Farcaster and counting them inflated the first measurement from
+4 to 7.
+
 ### Adding a live source
 
 `src/lib/corpus.ts` defines `CastSource`; nothing downstream of it knows where

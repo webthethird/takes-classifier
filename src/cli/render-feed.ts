@@ -24,6 +24,7 @@ type Member = {
   challengeability: number;
   confidence: number;
   challenge_reason: string;
+  via?: "claim" | "stance";
 };
 
 type Cluster = {
@@ -46,6 +47,9 @@ type Report = {
   total_clusters: number;
   multi_member_clusters: number;
   both_sides_clusters: number;
+  threads?: number;
+  stances_found?: number;
+  stance_off_topic?: number;
   feed: Cluster[];
 };
 
@@ -83,6 +87,7 @@ function card(c: Cluster, rank: number): string {
         <div class="cast-head">
           <span class="handle">@${esc(m.cast.username ?? "unknown")}</span>
           <span class="stance stance--${m.stance}">${m.stance}</span>
+          ${m.via === "stance" ? '<span class="via">reply</span>' : '<span class="via via--root">opening take</span>'}
           ${m.cast.channel ? `<span class="chan">/${esc(m.cast.channel)}</span>` : ""}
           <span class="when">${esc(relTime(m.cast.ts))}</span>
         </div>
@@ -245,6 +250,11 @@ h1{margin:0; font-size:30px; line-height:1.15; letter-spacing:-.022em; text-wrap
 .stance--yes{background:var(--yes-soft); color:var(--yes)}
 .stance--no{background:var(--no-soft); color:var(--no)}
 .chan,.when{font-size:11.5px; color:var(--muted)}
+.via{
+  font-size:10px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px;
+}
+.via--root{border-style:dashed}
 .cast-text{margin:0; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere}
 
 .actions{display:flex; gap:8px; flex-wrap:wrap; padding-top:2px}
@@ -276,12 +286,13 @@ footer code{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace; f
     <div class="stat"><span class="stat-n mono">${r.opinion_casts}</span><span class="stat-l">opinions</span></div>
     <div class="stat"><span class="stat-n mono">${r.rejected_casts}</span><span class="stat-l">rejected</span></div>
     <div class="stat"><span class="stat-n mono">${r.total_clusters}</span><span class="stat-l">questions</span></div>
+    ${r.threads ? `<div class="stat"><span class="stat-n mono">${r.threads}</span><span class="stat-l">threads</span></div>` : ""}
     <div class="stat"><span class="stat-n mono">${r.both_sides_clusters}</span><span class="stat-l">contested</span></div>
   </section>
 
   <div class="note">
     <p><strong>What to look for.</strong> Scrolling this, do you want to argue with any of them? Not "is this impressive" — would you tap <em>Challenge</em>?</p>
-    <p>Cards marked <strong>contested</strong> already have people on both sides in the source data. Those are the ones that should feel most alive; if they don't, the ranking is wrong, not the idea.</p>
+    <p>Cards marked <strong>contested</strong> have <em>different people</em> on opposite sides of the same question — pulled from real reply threads, not inferred. Those should feel most alive; if they don't, the ranking is wrong, not the idea.</p>
   </div>
 
   <main class="feed">

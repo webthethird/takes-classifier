@@ -57,6 +57,9 @@ type Member = {
   challengeability: number;
   confidence: number;
   challenge_reason: string;
+  /// "claim" = question extracted from this cast (stage 1).
+  /// "stance" = cast judged against an existing question (stage 2).
+  via: "claim" | "stance";
 };
 
 type Cluster = {
@@ -73,9 +76,20 @@ type Cluster = {
 function scoreCluster(members: Member[]): { score: number; bothSides: boolean } {
   const peakChallenge = Math.max(...members.map((m) => m.challengeability));
   const peakConfidence = Math.max(...members.map((m) => m.confidence));
-  const bothSides =
-    members.some((m) => m.stance === "yes") &&
-    members.some((m) => m.stance === "no");
+  // "Contested" requires DIFFERENT PEOPLE on opposite sides. One author
+  // replying to their own thread and shifting emphasis is not disagreement,
+  // and counting it as such badly overstates how contested a market is —
+  // self-replies are common on Farcaster, so this is not a rare edge case.
+  const authorsFor = (side: "yes" | "no") =>
+    new Set(
+      members
+        .filter((m) => m.stance === side)
+        .map((m) => m.cast.username ?? m.cast.fid ?? m.cast.id),
+    );
+  const yesAuthors = authorsFor("yes");
+  const noAuthors = authorsFor("no");
+  const bothSides = [...yesAuthors].some((a) => !noAuthors.has(a)) &&
+    [...noAuthors].some((a) => !yesAuthors.has(a));
 
   const sizeBoost = Math.min(
     1 + PER_MEMBER_BOOST * (members.length - 1),
@@ -181,10 +195,78 @@ async function main() {
   let classified = 0;
   let opinions = 0;
   let failed = 0;
+  let stanceCalls = 0;
+  let stancesFound = 0;
+  let offTopic = 0;
   const rejected: Array<{ id: string; text: string; reason: string }> = [];
 
-  for (let i = 0; i < casts.length; i++) {
-    const cast = casts[i];
+  // Group into threads. Replies carry parent_text + thread_root_hash; the
+  // static corpora carry neither, so they all fall through to standalone and
+  // the old single-stage path is preserved exactly.
+  type Thread = { root?: RawCast; replies: RawCast[] };
+  const threads = new Map<string, Thread>();
+  const standalone: RawCast[] = [];
+  for (const c of casts) {
+    const root = c.thread_root_hash;
+    if (!root) {
+      standalone.push(c);
+      continue;
+    }
+    const t = threads.get(root) ?? { replies: [] };
+    if (c.parent_text) t.replies.push(c);
+    else t.root = c;
+    threads.set(root, t);
+  }
+  console.error(
+    `[feed] ${threads.size} threads, ${standalone.length} standalone casts`,
+  );
+
+  /// Embed a claim's question, find or create its cluster, and attach a
+  /// member. Shared by both stages so clustering behaves identically.
+  async function attach(
+    claim: Claim,
+    cast: RawCast,
+    opts: { stance: "yes" | "no"; via: "claim" | "stance"; confidence: number; reason: string },
+  ): Promise<string> {
+    const emb = await embed(claim.question);
+    const match = findMatch(claim, emb, index, { matchAspect });
+    const member: Member = {
+      cast,
+      stance: opts.stance,
+      similarity: match.kind === "match" ? match.similarity : 1,
+      challengeability: claim.challengeability,
+      confidence: opts.confidence,
+      challenge_reason: opts.reason,
+      via: opts.via,
+    };
+    if (match.kind === "match") {
+      clusters.get(match.market.id)!.members.push(member);
+      return match.market.id;
+    }
+    const id = `c${clusters.size + 1}`;
+    index.push({
+      id,
+      question: claim.question,
+      claim_type: claim.claim_type,
+      aspect: claim.aspect,
+      embedding: emb,
+      seeded_by_cast: cast.id,
+    });
+    clusters.set(id, {
+      id,
+      question: claim.question,
+      claim_type: claim.claim_type,
+      aspect: claim.aspect,
+      members: [member],
+      score: 0,
+      both_sides: false,
+      challenge_reason: claim.challenge_reason,
+    });
+    return id;
+  }
+
+  /// Stage 1 on a single cast. Returns its claims, or null if not an opinion.
+  async function stageOne(cast: RawCast): Promise<Claim[] | null> {
     let result;
     try {
       result = await cache.classify(cast.text, cast.parent_text);
@@ -192,56 +274,97 @@ async function main() {
     } catch (e) {
       failed++;
       console.error(`[feed] classify failed for ${cast.id}: ${String(e).slice(0, 120)}`);
-      continue;
+      return null;
     }
-
     if (!result.is_opinion || result.claims.length === 0) {
       rejected.push({ id: cast.id, text: cast.text, reason: result.reason });
-      continue;
+      return null;
     }
     opinions++;
+    return result.claims;
+  }
 
-    for (const claim of result.claims) {
-      const emb = await embed(claim.question);
-      const match = findMatch(claim, emb, index, { matchAspect });
+  // ── Threads: stage 1 on the root, stage 2 on every reply ───────────────
+  let threadIdx = 0;
+  for (const [rootHash, thread] of threads) {
+    threadIdx++;
+    const root = thread.root;
+    if (!root) {
+      // Root wasn't in the pull (filtered out); treat replies as standalone.
+      standalone.push(...thread.replies);
+      continue;
+    }
 
-      const member: Member = {
-        cast,
+    const claims = await stageOne(root);
+    if (!claims) continue;
+
+    // Every root claim becomes a cluster; the most challengeable one is the
+    // thread's question, and that's what replies are judged against. Using
+    // one question per thread is deliberate — asking stage 2 about several
+    // questions per reply multiplies cost for steeply diminishing returns.
+    let primary: { claim: Claim; clusterId: string } | null = null;
+    for (const claim of claims) {
+      const id = await attach(claim, root, {
         stance: claim.answer,
-        similarity: match.kind === "match" ? match.similarity : 1,
-        challengeability: claim.challengeability,
+        via: "claim",
         confidence: claim.confidence,
-        challenge_reason: claim.challenge_reason,
-      };
+        reason: claim.challenge_reason,
+      });
+      if (!primary || claim.challengeability > primary.claim.challengeability) {
+        primary = { claim, clusterId: id };
+      }
+    }
+    if (!primary) continue;
 
-      if (match.kind === "match") {
-        clusters.get(match.market.id)!.members.push(member);
-      } else {
-        const id = `c${clusters.size + 1}`;
-        index.push({
-          id,
-          question: claim.question,
-          claim_type: claim.claim_type,
-          aspect: claim.aspect,
-          embedding: emb,
-          seeded_by_cast: cast.id,
+    for (const reply of thread.replies) {
+      try {
+        const st = await cache.stance(primary.claim.question, root.text, reply.text);
+        stanceCalls++;
+        if (st.stance === "off_topic") {
+          offTopic++;
+          continue;
+        }
+        stancesFound++;
+        clusters.get(primary.clusterId)!.members.push({
+          cast: reply,
+          stance: st.stance,
+          similarity: 1,
+          // A reply inherits the question's challengeability — it didn't
+          // raise the question, it answered it.
+          challengeability: primary.claim.challengeability,
+          confidence: st.confidence,
+          challenge_reason: st.reason,
+          via: "stance",
         });
-        clusters.set(id, {
-          id,
-          question: claim.question,
-          claim_type: claim.claim_type,
-          aspect: claim.aspect,
-          members: [member],
-          score: 0,
-          both_sides: false,
-          challenge_reason: claim.challenge_reason,
-        });
+      } catch (e) {
+        failed++;
+        console.error(`[feed] stance failed for ${reply.id}: ${String(e).slice(0, 120)}`);
       }
     }
 
-    if (i % 10 === 0) {
+    if (threadIdx % 10 === 0) {
       console.error(
-        `[feed] [${i + 1}/${casts.length}] clusters=${clusters.size} opinions=${opinions} (cache ${cache.hits}h/${cache.misses}m)`,
+        `[feed] thread ${threadIdx}/${threads.size} clusters=${clusters.size} stances=${stancesFound} (cache ${cache.hits}h/${cache.misses}m)`,
+      );
+    }
+  }
+
+  // ── Standalone casts: stage 1 only ─────────────────────────────────────
+  for (let i = 0; i < standalone.length; i++) {
+    const cast = standalone[i];
+    const claims = await stageOne(cast);
+    if (!claims) continue;
+    for (const claim of claims) {
+      await attach(claim, cast, {
+        stance: claim.answer,
+        via: "claim",
+        confidence: claim.confidence,
+        reason: claim.challenge_reason,
+      });
+    }
+    if (i % 25 === 0 && standalone.length > 25) {
+      console.error(
+        `[feed] standalone ${i + 1}/${standalone.length} clusters=${clusters.size} (cache ${cache.hits}h/${cache.misses}m)`,
       );
     }
   }
@@ -270,6 +393,10 @@ async function main() {
     sources: paths,
     match_aspect: matchAspect,
     casts_with_thread_context: casts.filter((c) => c.parent_text).length,
+    threads: threads.size,
+    stance_calls: stanceCalls,
+    stances_found: stancesFound,
+    stance_off_topic: offTopic,
     total_casts: casts.length,
     classified,
     failed,
@@ -278,6 +405,9 @@ async function main() {
     total_clusters: ranked.length,
     multi_member_clusters: ranked.filter((c) => c.members.length > 1).length,
     both_sides_clusters: ranked.filter((c) => c.both_sides).length,
+    distinct_author_clusters: ranked.filter(
+      (c) => new Set(c.members.map((m) => m.cast.username)).size > 1,
+    ).length,
     feed: ranked.slice(0, top),
     rejected,
   };
@@ -290,6 +420,8 @@ async function main() {
   console.error(`  Opinions:       ${opinions}  (rejected ${rejected.length}, failed ${failed})`);
   console.error(`  Clusters:       ${ranked.length}`);
   console.error(`  Multi-member:   ${report.multi_member_clusters}`);
+  console.error(`  Threads:        ${threads.size}`);
+  console.error(`  Stage-2 calls:  ${stanceCalls} -> ${stancesFound} stances, ${offTopic} off-topic`);
   console.error(`  Both sides:     ${report.both_sides_clusters}`);
   console.error(`  Written:        ${out}`);
 

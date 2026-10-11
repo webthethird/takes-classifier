@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import "dotenv/config";
-import { ClassifyResult } from "./schema.js";
+import { ClassifyResult, StanceResult } from "./schema.js";
 
 const client = new Anthropic();
 
@@ -161,6 +161,65 @@ export async function classifyCast(opts: {
 
   if (!response.parsed_output) {
     throw new Error("Classifier returned no parsed output");
+  }
+  return response.parsed_output;
+}
+
+
+const STANCE_PROMPT = `You decide where a reply lands on an existing YES/NO question in a Farcaster thread.
+
+You are given:
+- QUESTION: a canonical YES/NO question already extracted from the thread's root cast
+- ROOT: the cast that question came from
+- REPLY: someone's reply in that thread
+
+Answer only: does the REPLY support YES, support NO, or take no position on THIS question?
+
+## Rules
+
+- **Judge against the given question only.** The reply may raise other interesting points. Ignore them. If the reply argues something adjacent but takes no position on this question, that is off_topic.
+- **Disagreement with the root usually means the opposite stance from the root.** If the root asserts YES and the reply pushes back, that is NO. Read hedges carefully: "maybe on the surface, but otherwise not really" is disagreement.
+- **Agreement that adds detail is still a stance.** "Exactly, and it's worse than that" is the same side as the root.
+- **Partial agreement:** pick the side the reply leans toward. Only use off_topic when there is genuinely no lean.
+- **off_topic** covers: greetings, jokes with no position, questions asking for clarification, pure tangents, replies about a different claim, and self-promotion.
+- Sarcasm and irony mean the opposite of the literal words. Read the intent.
+
+## Calibration
+
+Most replies in a real thread are off_topic. Do not manufacture stances to be
+agreeable — a thread where three of fifteen replies actually engage with the
+question is normal and useful. A false stance pollutes the market with people
+who never took a side.`;
+
+/// Stage 2: classify a reply's stance on an already-extracted question.
+export async function classifyStance(opts: {
+  question: string;
+  rootText: string;
+  replyText: string;
+}): Promise<StanceResult> {
+  const response = await client.messages.parse({
+    model: "claude-haiku-4-5",
+    max_tokens: 512,
+    system: [
+      {
+        type: "text",
+        text: STANCE_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content:
+          `<question>${opts.question}</question>\n\n` +
+          `<root>${opts.rootText}</root>\n\n` +
+          `<reply>${opts.replyText}</reply>`,
+      },
+    ],
+    output_config: { format: zodOutputFormat(StanceResult) },
+  });
+  if (!response.parsed_output) {
+    throw new Error("Stance classifier returned no parsed output");
   }
   return response.parsed_output;
 }

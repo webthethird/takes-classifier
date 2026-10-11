@@ -13,8 +13,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { classifyCast } from "./classify.js";
-import { ClassifyResult } from "./schema.js";
+import { classifyCast, classifyStance } from "./classify.js";
+import { ClassifyResult, StanceResult } from "./schema.js";
 
 /// Bump when the prompt or schema changes. `challengeability` +
 /// `challenge_reason` were added in v2.
@@ -71,6 +71,29 @@ export class ClassifyCache {
 
     this.misses++;
     const result = await classifyCast({ text, parentText });
+    this.data[k] = { version: PROMPT_VERSION, result };
+    if (++this.dirty >= FLUSH_EVERY) this.flush();
+    return result;
+  }
+
+  /// Stage 2, cached on (question, reply) — the root text is implied by the
+  /// question and including it would miss cache on trivial root edits.
+  async stance(
+    question: string,
+    rootText: string,
+    replyText: string,
+  ): Promise<StanceResult> {
+    const k = "s:" + keyFor(replyText, question);
+    const hit = this.data[k];
+    if (hit && hit.version === PROMPT_VERSION) {
+      const parsed = StanceResult.safeParse(hit.result);
+      if (parsed.success) {
+        this.hits++;
+        return parsed.data;
+      }
+    }
+    this.misses++;
+    const result = await classifyStance({ question, rootText, replyText });
     this.data[k] = { version: PROMPT_VERSION, result };
     if (++this.dirty >= FLUSH_EVERY) this.flush();
     return result;
