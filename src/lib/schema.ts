@@ -29,6 +29,18 @@ export const Claim = z.object({
     .min(0)
     .max(1)
     .describe("How confident the classifier is that this claim is correct."),
+  challengeability: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe(
+      "How much this claim invites someone to take the opposing side. High when reasonable people genuinely disagree and the claim is specific enough to argue about. Low for truisms, settled facts, and vague gestures. This is NOT the same as confidence — a claim can be extracted with high confidence and still be boring to argue with.",
+    ),
+  challenge_reason: z
+    .string()
+    .describe(
+      "One short sentence naming the disagreement: what the opposing side would actually say. Used as feed copy, so write it to be read by a user, not a developer.",
+    ),
 });
 export type Claim = z.infer<typeof Claim>;
 

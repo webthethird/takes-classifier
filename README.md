@@ -15,7 +15,10 @@ thresholds with fast feedback, not to run in production. The validated logic was
 ported into the mini app (`lib/classify.ts`, `lib/embed.ts`, `lib/market-index.ts`)
 with the local embedding model swapped for a hosted one.
 
-**Development is paused** along with the rest of the project.
+Active again as the harness for the **feed experiment**: can we rank real casts
+by how much they invite a counter-argument, and does a feed of those make anyone
+want to challenge one? See [the feed pipeline](#the-feed-pipeline) and
+[what the first run showed](#what-the-first-run-showed).
 
 ## The problem
 
@@ -34,8 +37,9 @@ keeps in a form that *collides on purpose*.
 **Stage 1 — classify (`src/lib/classify.ts`).** One Claude call per cast with a
 zod-enforced output schema (`is_opinion`, `reason`, `claims[]`). Each claim is a
 YES/NO `question`, the caster's `answer`, a `claim_type`
-(predictive / evaluative / prescriptive / descriptive), a coarse `aspect` tag, and
-a confidence.
+(predictive / evaluative / prescriptive / descriptive), a coarse `aspect` tag, a
+confidence, and — for the feed — a `challengeability` score with a user-facing
+`challenge_reason`.
 
 The system prompt is most of the engineering here, and it's built around one rule:
 **canonical positive framing.** The question always uses the positive adjective,
@@ -104,6 +108,84 @@ question-vs-assertion rules in the current prompt came from.
 ```sh
 pnpm typecheck
 ```
+
+## The feed pipeline
+
+`cluster.ts` answers "do these casts merge?". `feed.ts` answers the product
+question: **"which of these would anyone want to argue with?"**
+
+```sh
+pnpm feed --top 30 data/*.json              # classify, cluster, rank
+pnpm render-feed --out feed.html feed_*.json # ranked JSON -> standalone page
+```
+
+Three additions over `cluster.ts`:
+
+**A challengeability score.** The classifier now emits `challengeability` and a
+user-facing `challenge_reason` alongside `confidence`. These are different axes
+and conflating them is the easy mistake — confidence asks "did I extract this
+right?", challengeability asks "would anyone take the other side?" A cast can
+score 0.95 confidence and 0.1 challengeability by being a perfectly-extracted
+truism. The prompt tells the model to score low and mean it; a feed of 0.4s is a
+dead feed.
+
+**Ranking that trusts observation over the model.** Two empirical signals
+override the model's own judgment, with weights as named constants at the top of
+`feed.ts`:
+
+- a cluster with people **already on both sides** is proven contested (1.5×)
+- a deeper cluster is a live argument, not one person's passing thought (up to 2×)
+
+Confidence is a gate, not a booster — a shaky extraction shouldn't ride a high
+challengeability score to the top.
+
+**A classify cache** (`src/lib/cache.ts`). Classification is the slow, paid step;
+ranking is what you actually iterate on. Results are cached by cast text,
+namespaced by `PROMPT_VERSION`, written atomically, and flushed on SIGINT/TERM/HUP.
+Re-running to tune weights costs nothing, and a run killed partway resumes.
+**Bump `PROMPT_VERSION` whenever the prompt or schema changes**, or reruns serve
+stale results.
+
+### What the first run showed
+
+Over all four corpora (348 casts):
+
+| | |
+| --- | --- |
+| Opinions kept | 73 (21%) |
+| Distinct questions | 93 |
+| Questions with 2+ casts | 7 |
+| **Questions with both sides represented** | **1** |
+
+That last number is the finding. The ranking leans on observed disagreement and
+there's almost none to lean on.
+
+It is *not* the matcher. Aspect filtering was the obvious suspect — `findMatch`
+requires an exact `aspect` match while the mini app deliberately drops it — but
+measuring it moved multi-member clusters from 5 to 7 and left both-sides at 1.
+(Aspect filtering is therefore off by default in `feed.ts`, matching the mini
+app; `--aspect` restores it to re-measure.)
+
+It's the corpus. `data/` is four keyword searches returning isolated casts, and
+isolated casts don't argue with each other — **disagreement lives in reply
+threads**, which these pulls don't contain. `classifyCast` has accepted
+`parentText` all along and the static corpora simply can't exercise it.
+
+So the conclusion for live data is: pull threads, not search results. A spicy
+cast plus its replies is a pre-packaged contested cluster. That's recorded in
+`neynarSource`'s implementation notes in `src/lib/corpus.ts`.
+
+### Adding a live source
+
+`src/lib/corpus.ts` defines `CastSource`; nothing downstream of it knows where
+casts come from. `fileSource` reads the corpora; `neynarSource` is a stub with
+the implementation notes. Wiring up live data means implementing that one
+function — `feed.ts` doesn't change.
+
+Note the engagement fields on `RawCast` (`replies`, `recasts`, `likes`) are
+optional because the static corpora don't carry them. Live sources should
+populate them: they're both the cheap pre-filter that keeps the Claude bill
+proportional to signal rather than volume, and a ranking input.
 
 ## Corpora
 

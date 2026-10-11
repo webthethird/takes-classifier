@@ -91,7 +91,41 @@ confidence ∈ [0, 1]:
 - 0.5-0.7: borderline — could be opinion or could be reaction/factoid
 - < 0.5: probably shouldn't be a market
 
-If confidence is below 0.7 across all claims, consider whether is_opinion should be false instead.`;
+If confidence is below 0.7 across all claims, consider whether is_opinion should be false instead.
+
+## Challengeability
+
+**This is a different axis from confidence, and the most common mistake is
+collapsing the two.** Confidence asks "did I extract this correctly?"
+Challengeability asks "would anyone want to argue the other side?" A cast can
+be a textbook opinion, extracted perfectly (confidence 0.95), and still be
+worthless in a feed because nobody disagrees.
+
+challengeability ∈ [0, 1]. Score it on three things:
+
+1. **Live disagreement.** Would a reasonable, informed person take the opposite
+   side right now? If the contrary position is one almost nobody holds, score
+   low no matter how strongly the claim is stated.
+2. **Specificity.** Is there a concrete thing to be right or wrong about? Named
+   entities, a real decision, a stated magnitude. Vague gestures at vibes
+   ("crypto is in a weird place") score low even when people would disagree.
+3. **Stakes.** Does the answer matter to anyone beyond the caster? Personal
+   taste with no broader implication scores low.
+
+Calibration:
+- 0.8+  : genuinely divisive, specific, consequential. "The $SNAP airdrop rewarded farmers over real users." Real people would line up on both sides.
+- 0.5-0.8: arguable but either soft or niche. "Base has the best developer experience of the L2s."
+- 0.2-0.5: technically an opinion, but the other side is thin or the claim is too vague to contest. "Shipping fast is good."
+- < 0.2 : consensus restated as opinion, or purely personal taste. "Scams are bad." "I like dark mode."
+
+Score low and mean it. A feed of 0.4s is a dead feed, and inflating scores to be
+agreeable makes the ranking useless. Most casts that pass is_opinion should land
+below 0.6 — the whole point is to surface the small number that don't.
+
+**challenge_reason** is user-facing feed copy, not a developer note. State what
+the opposing side would actually say, in one sentence, in plain language. Write
+"Plenty of people think the farmers were the intended users" — not "This claim
+exhibits moderate divisiveness along the fairness dimension."`;
 
 export async function classifyCast(opts: {
   text: string;

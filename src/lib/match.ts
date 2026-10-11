@@ -16,11 +16,18 @@ export function findMatch(
   claim: Claim,
   claimEmbedding: number[],
   index: IndexedMarket[],
+  /// Require an exact `aspect` match as well as claim_type. The miniapp
+  /// disables this: the classifier drifts between near-identical tags
+  /// ("airdrop fairness" vs "fairness") and a mismatch silently blocks an
+  /// otherwise-good merge. Kept togglable so the cost is measurable.
+  opts: { matchAspect?: boolean } = {},
 ): MatchOutcome {
-  // Filter to candidates with same claim_type AND same aspect
+  const { matchAspect = true } = opts;
   const candidates = index
     .filter(
-      (m) => m.claim_type === claim.claim_type && m.aspect === claim.aspect,
+      (m) =>
+        m.claim_type === claim.claim_type &&
+        (!matchAspect || m.aspect === claim.aspect),
     )
     .map((m) => ({ market: m, similarity: cosine(claimEmbedding, m.embedding) }))
     .sort((a, b) => b.similarity - a.similarity);

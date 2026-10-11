@@ -6,7 +6,9 @@
   "scripts": {
     "classify": "tsx src/cli/classify.ts",
     "cluster": "tsx src/cli/cluster.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "feed": "tsx src/cli/feed.ts",
+    "render-feed": "tsx src/cli/render-feed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
