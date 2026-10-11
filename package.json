@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "feed": "tsx src/cli/feed.ts",
     "render-feed": "tsx src/cli/render-feed.ts",
-    "probe-neynar": "tsx src/cli/probe-neynar.ts"
+    "probe-neynar": "tsx src/cli/probe-neynar.ts",
+    "test": "tsx src/cli/test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",

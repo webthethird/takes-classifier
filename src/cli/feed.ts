@@ -28,83 +28,14 @@ import { findMatch } from "../lib/match.js";
 import { fileSource, type CastSource, type RawCast } from "../lib/corpus.js";
 import { neynarSource } from "../lib/neynar.js";
 import type { Claim, IndexedMarket } from "../lib/schema.js";
-
-/* ───────────────────────────── Scoring ─────────────────────────────── */
-//
-// The product promise is "here are opinions you COULD challenge", not "here
-// are arguments already in progress". So challengeability leads, and the two
-// empirical signals corroborate rather than dominate.
-//
-// These boosts were originally 1.5x and 2.0x, which inverted that: a
-// mediocre 0.5-challengeability thread that happened to be contested beat a
-// 0.95 take nobody had replied to yet (0.5 x 2.0 x 1.5 = 1.50 vs 0.95).
-// Observed disagreement is evidence the question is live, but an unchallenged
-// take is the thing the feed exists to surface, so it must not be buried.
-//
-// Confidence acts as a gate, not a booster: a shaky extraction shouldn't ride
-// a high challengeability score into the top of the feed.
-
-/// Multiplier when a cluster has different people on opposing sides.
-const BOTH_SIDES_BOOST = 1.2;
-/// Added per extra cast in a cluster, capped by MAX_SIZE_BOOST.
-const PER_MEMBER_BOOST = 0.15;
-const MAX_SIZE_BOOST = 1.4;
-/// Confidence is folded in at half weight so it can dampen but not dominate.
-const CONFIDENCE_FLOOR = 0.5;
-
-type Member = {
-  cast: RawCast;
-  stance: "yes" | "no";
-  similarity: number;
-  challengeability: number;
-  confidence: number;
-  challenge_reason: string;
-  /// "claim" = question extracted from this cast (stage 1).
-  /// "stance" = cast judged against an existing question (stage 2).
-  via: "claim" | "stance";
-};
-
-type Cluster = {
-  id: string;
-  question: string;
-  claim_type: Claim["claim_type"];
-  aspect: string;
-  members: Member[];
-  score: number;
-  both_sides: boolean;
-  challenge_reason: string;
-};
-
-function scoreCluster(members: Member[]): { score: number; bothSides: boolean } {
-  const peakChallenge = Math.max(...members.map((m) => m.challengeability));
-  const peakConfidence = Math.max(...members.map((m) => m.confidence));
-  // "Contested" requires DIFFERENT PEOPLE on opposite sides. One author
-  // replying to their own thread and shifting emphasis is not disagreement,
-  // and counting it as such badly overstates how contested a market is —
-  // self-replies are common on Farcaster, so this is not a rare edge case.
-  const authorsFor = (side: "yes" | "no") =>
-    new Set(
-      members
-        .filter((m) => m.stance === side)
-        .map((m) => m.cast.username ?? m.cast.fid ?? m.cast.id),
-    );
-  const yesAuthors = authorsFor("yes");
-  const noAuthors = authorsFor("no");
-  const bothSides = [...yesAuthors].some((a) => !noAuthors.has(a)) &&
-    [...noAuthors].some((a) => !yesAuthors.has(a));
-
-  const sizeBoost = Math.min(
-    1 + PER_MEMBER_BOOST * (members.length - 1),
-    MAX_SIZE_BOOST,
-  );
-  const confidenceGate =
-    CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * peakConfidence;
-
-  const score =
-    peakChallenge * confidenceGate * sizeBoost * (bothSides ? BOTH_SIDES_BOOST : 1);
-
-  return { score, bothSides };
-}
+import {
+  authorCounts,
+  pickOpposingReply,
+  pickRepresentative,
+  scoreCluster,
+  type Cluster,
+  type Member,
+} from "../lib/score.js";
 
 /* ────────────────────────────── Main ───────────────────────────────── */
 
@@ -395,11 +326,21 @@ async function main() {
       const best = [...c.members].sort(
         (a, b) => b.challengeability - a.challengeability,
       )[0];
+      const representative = pickRepresentative(c.members);
+      const opposing = pickOpposingReply(c.members, representative);
       return {
         ...c,
         score,
         both_sides: bothSides,
         challenge_reason: best.challenge_reason,
+        ...authorCounts(c.members),
+        // The real cast that fronts the card in cast-first rendering, plus
+        // what Back/Challenge mean relative to ITS stance. Resolved here so
+        // the renderer never has to re-derive it (and can't disagree).
+        representative_cast_id: representative.cast.id,
+        back_means: representative.stance,
+        challenge_means: representative.stance === "yes" ? "no" : "yes",
+        opposing_cast_id: opposing?.cast.id ?? null,
       };
     })
     .sort((a, b) => b.score - a.score);

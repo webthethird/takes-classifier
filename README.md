@@ -244,6 +244,69 @@ disagreement corroborates, it doesn't dominate.
 are common on Farcaster, and counting them inflated the first measurement from
 4 to 7.
 
+### Two layouts, one dataset
+
+`render-feed.ts` takes `--layout question|cast` and renders the same report
+both ways, so the comparison isn't confounded by different candidates or
+ranking:
+
+```sh
+pnpm feed --trending-channels 1d --search "unpopular opinion" --top 25
+pnpm render-feed --layout question --out a.html feed_<ts>.json
+pnpm render-feed --layout cast     --out b.html feed_<ts>.json
+```
+
+**A (question-first)** leads with the canonical question and hides source
+casts behind a disclosure. **B (cast-first)** leads with a real person's
+verbatim words; the derived question sits underneath in a subordinate block.
+
+B exists because of a product argument worth stating: the canonical question
+supplies normalization, but the *cast* supplies the person, the context, and
+the reason anyone would care. Nobody wants to argue with a debate prompt. They
+want to argue with someone who said something. So the AI output should make a
+human statement actionable, not replace it in the headline position.
+
+Mechanics of the cast-first card:
+
+- **Back / Challenge are relative to the cast, never the question.** If the
+  lead cast argues `no` on a positively-framed question, "Back this take"
+  means `no` and "Challenge" means `yes`. Resolved in `feed.ts`
+  (`back_means` / `challenge_means`) so the renderer can't disagree with the
+  pipeline. A user should never need to understand canonical framing to
+  disagree with someone.
+- **The lead cast is chosen deterministically** — `pickRepresentative` prefers
+  the cast the question was extracted from over a reply, then
+  challengeability, then engagement, then cast id. Always a real cast, never
+  an AI paraphrase.
+- **Real disagreement outranks hypothesised disagreement.** When an opposing
+  cast from a different person exists it is shown inline and labelled
+  "Someone already disagrees". Only when none exists does the card fall back
+  to `challenge_reason`, which is explicitly marked **AI hypothesis**. These
+  must not look alike: one is evidence, the other is a guess.
+- Every cast keeps author, channel, date and a Farcaster permalink.
+
+### Counting people, not messages
+
+`yes_casts` and `yes_authors` are different numbers and the UI says which it
+means. One author posting four times does not make a side four people strong,
+and none of these counts are stake, votes, or a poll — they are classified
+source-cast stances.
+
+The contested test had a real bug here. It looked for an author who posted
+*only* yes and another who posted *only* no, so this returned false:
+
+```
+Alice: yes
+Bob:   yes
+Bob:   no     <- Alice and Bob genuinely disagree, but Bob is in both sets
+```
+
+The right question is whether any yes-member and any no-member are different
+people. Fixing it moved contested clusters from 4 to 6 on an identical pull.
+Identity prefers FID over username, since usernames are mutable. `pnpm test`
+covers self-replies, mixed-stance authors, independent opposition, and
+deterministic representative selection.
+
 ### Adding a live source
 
 `src/lib/corpus.ts` defines `CastSource`; nothing downstream of it knows where
