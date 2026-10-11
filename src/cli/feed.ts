@@ -31,22 +31,24 @@ import type { Claim, IndexedMarket } from "../lib/schema.js";
 
 /* ───────────────────────────── Scoring ─────────────────────────────── */
 //
-// Challengeability from the classifier is the base, but the two empirical
-// signals are better than the model's judgment and get to override it:
+// The product promise is "here are opinions you COULD challenge", not "here
+// are arguments already in progress". So challengeability leads, and the two
+// empirical signals corroborate rather than dominate.
 //
-//   - A cluster where people have ALREADY taken opposing sides is proven
-//     contested. No model opinion beats observed disagreement.
-//   - A cluster several casts deep is a live argument rather than one
-//     person's passing thought.
+// These boosts were originally 1.5x and 2.0x, which inverted that: a
+// mediocre 0.5-challengeability thread that happened to be contested beat a
+// 0.95 take nobody had replied to yet (0.5 x 2.0 x 1.5 = 1.50 vs 0.95).
+// Observed disagreement is evidence the question is live, but an unchallenged
+// take is the thing the feed exists to surface, so it must not be buried.
 //
-// Confidence acts as a gate, not a booster: a shaky extraction shouldn't
-// ride a high challengeability score into the top of the feed.
+// Confidence acts as a gate, not a booster: a shaky extraction shouldn't ride
+// a high challengeability score into the top of the feed.
 
-/// Multiplier when a cluster already contains both a yes and a no stance.
-const BOTH_SIDES_BOOST = 1.5;
+/// Multiplier when a cluster has different people on opposing sides.
+const BOTH_SIDES_BOOST = 1.2;
 /// Added per extra cast in a cluster, capped by MAX_SIZE_BOOST.
-const PER_MEMBER_BOOST = 0.3;
-const MAX_SIZE_BOOST = 2.0;
+const PER_MEMBER_BOOST = 0.15;
+const MAX_SIZE_BOOST = 1.4;
 /// Confidence is folded in at half weight so it can dampen but not dominate.
 const CONFIDENCE_FLOOR = 0.5;
 
@@ -115,6 +117,7 @@ async function main() {
   let minReplies = 2;
   let candidates = 100;
   let minChars = 40;
+  let includeResolvable = false;
   let pages = 1;
   const searches: string[] = [];
   let trendingWindow: "1d" | "7d" | "30d" | undefined;
@@ -125,6 +128,7 @@ async function main() {
     if (args[i] === "--limit") limit = parseInt(args[++i], 10);
     else if (args[i] === "--top") top = parseInt(args[++i], 10);
     else if (args[i] === "--aspect") matchAspect = true;
+    else if (args[i] === "--include-resolvable") includeResolvable = true;
     else if (args[i] === "--channel") channels.push(args[++i]);
     else if (args[i] === "--candidates") candidates = parseInt(args[++i], 10);
     else if (args[i] === "--min-chars") minChars = parseInt(args[++i], 10);
@@ -146,6 +150,7 @@ async function main() {
         "  pnpm feed --channel base --channel crypto         live channels (repeatable)\n" +
         "  pnpm feed --trending-channels 1d                 discover channels dynamically\n" +
         "  pnpm feed --search \"unpopular take\"              semantic search, network-wide\n" +
+        "  --include-resolvable                             keep prediction-market claims\n" +
         "Live options: --candidates N --min-replies N --min-chars N --max-threads N --reply-depth N\n" +
         "Live sources need NEYNAR_API_KEY.",
     );
@@ -198,6 +203,7 @@ async function main() {
   let stanceCalls = 0;
   let stancesFound = 0;
   let offTopic = 0;
+  let resolvableDropped = 0;
   const rejected: Array<{ id: string; text: string; reason: string }> = [];
 
   // Group into threads. Replies carry parent_text + thread_root_hash; the
@@ -281,7 +287,17 @@ async function main() {
       return null;
     }
     opinions++;
-    return result.claims;
+    // Drop claims a future fact will settle. Takes has no oracle, so the
+    // time-weighted crowd can pay out against someone who turns out to be
+    // demonstrably right — those belong on a prediction market.
+    const keep = includeResolvable
+      ? result.claims
+      : result.claims.filter((c) => {
+          if (c.externally_resolvable) resolvableDropped++;
+          return !c.externally_resolvable;
+        });
+    if (keep.length === 0) return null;
+    return keep;
   }
 
   // ── Threads: stage 1 on the root, stage 2 on every reply ───────────────
@@ -397,6 +413,8 @@ async function main() {
     stance_calls: stanceCalls,
     stances_found: stancesFound,
     stance_off_topic: offTopic,
+    resolvable_claims_dropped: resolvableDropped,
+    include_resolvable: includeResolvable,
     total_casts: casts.length,
     classified,
     failed,
@@ -421,6 +439,7 @@ async function main() {
   console.error(`  Clusters:       ${ranked.length}`);
   console.error(`  Multi-member:   ${report.multi_member_clusters}`);
   console.error(`  Threads:        ${threads.size}`);
+  console.error(`  Resolvable:     ${resolvableDropped} claim(s) dropped (prediction-market material)`);
   console.error(`  Stage-2 calls:  ${stanceCalls} -> ${stancesFound} stances, ${offTopic} off-topic`);
   console.error(`  Both sides:     ${report.both_sides_clusters}`);
   console.error(`  Written:        ${out}`);

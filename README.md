@@ -206,6 +206,44 @@ Note "contested" requires *different people* on opposite sides. Self-replies
 are common on Farcaster and counting them inflated the first measurement from
 4 to 7.
 
+### Scope: no prediction markets
+
+Takes has no oracle — the crowd settles everything — so a claim a fact will
+settle is the wrong thing to host. The time-weighted crowd can pay out against
+someone who turns out to be demonstrably right, which is a product that
+punishes accuracy in public. Those belong on a real prediction market.
+
+So stage 1 emits `externally_resolvable` and `feed.ts` drops those claims by
+default (`--include-resolvable` keeps them). The axis is deliberately NOT
+`claim_type`: "Will Verstappen win the title?" is resolvable and "Is Verstappen
+the greatest ever?" never will be, and both are about the future.
+
+The first version of this prompt over-fired badly, marking judgment calls
+resolvable because facts happened to bear on them — "Was Doku brilliant in the
+match?", "Was the striker's performance poor?", "Do elections meaningfully
+change outcomes?". Sports context primes it especially hard. The fix was a
+single test stated plainly in the prompt: **after the fact is known, is there
+anything left to argue about?** Plus the real false positives as counter-
+examples, and a note that adjectives like brilliant/fair/honest/significant
+almost always mean `false`.
+
+Known remaining miss: "Is market movement more honest when leverage is lower?"
+is still marked resolvable despite appearing verbatim in the prompt as a
+counter-example.
+
+### Ranking: challengeable beats challenged
+
+The boosts for contested and multi-member clusters were originally 1.5x and
+2.0x, which inverted the product promise — a mediocre 0.5-challengeability
+thread that happened to be contested outranked a 0.95 take nobody had replied
+to yet. But the feed exists to surface opinions you COULD challenge, not
+arguments already in progress. Boosts are now 1.2x and 1.4x: observed
+disagreement corroborates, it doesn't dominate.
+
+`both_sides` also requires *different people* on opposing sides. Self-replies
+are common on Farcaster, and counting them inflated the first measurement from
+4 to 7.
+
 ### Adding a live source
 
 `src/lib/corpus.ts` defines `CastSource`; nothing downstream of it knows where

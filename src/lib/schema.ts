@@ -36,6 +36,11 @@ export const Claim = z.object({
     .describe(
       "How much this claim invites someone to take the opposing side. High when reasonable people genuinely disagree and the claim is specific enough to argue about. Low for truisms, settled facts, and vague gestures. This is NOT the same as confidence — a claim can be extracted with high confidence and still be boring to argue with.",
     ),
+  externally_resolvable: z
+    .boolean()
+    .describe(
+      "True if a future fact or event will settle this claim for a neutral observer — a race result, a price, a vote count, a shipped product. False if people would still reasonably disagree even knowing every fact. This is NOT the same as claim_type: 'Will Verstappen win the title?' is resolvable, 'Is Verstappen the greatest driver ever?' never will be, and both concern the future.",
+    ),
   challenge_reason: z
     .string()
     .describe(

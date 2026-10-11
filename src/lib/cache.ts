@@ -18,7 +18,11 @@ import { ClassifyResult, StanceResult } from "./schema.js";
 
 /// Bump when the prompt or schema changes. `challengeability` +
 /// `challenge_reason` were added in v2.
-const PROMPT_VERSION = "v2";
+/// Versioned separately so changing one prompt doesn't discard the other's
+/// cached results — they're independent calls with independent schemas.
+/// v3 added `externally_resolvable` to Claim.
+const CLASSIFY_VERSION = "v4";
+const STANCE_VERSION = "v1";
 const CACHE_PATH = ".cache/classify.json";
 /// Flush every N new entries. Small enough that a kill loses almost nothing,
 /// large enough to avoid hammering the disk.
@@ -60,7 +64,7 @@ export class ClassifyCache {
   async classify(text: string, parentText?: string): Promise<ClassifyResult> {
     const k = keyFor(text, parentText);
     const hit = this.data[k];
-    if (hit && hit.version === PROMPT_VERSION) {
+    if (hit && hit.version === CLASSIFY_VERSION) {
       const parsed = ClassifyResult.safeParse(hit.result);
       if (parsed.success) {
         this.hits++;
@@ -71,7 +75,7 @@ export class ClassifyCache {
 
     this.misses++;
     const result = await classifyCast({ text, parentText });
-    this.data[k] = { version: PROMPT_VERSION, result };
+    this.data[k] = { version: CLASSIFY_VERSION, result };
     if (++this.dirty >= FLUSH_EVERY) this.flush();
     return result;
   }
@@ -85,7 +89,7 @@ export class ClassifyCache {
   ): Promise<StanceResult> {
     const k = "s:" + keyFor(replyText, question);
     const hit = this.data[k];
-    if (hit && hit.version === PROMPT_VERSION) {
+    if (hit && hit.version === STANCE_VERSION) {
       const parsed = StanceResult.safeParse(hit.result);
       if (parsed.success) {
         this.hits++;
@@ -94,7 +98,7 @@ export class ClassifyCache {
     }
     this.misses++;
     const result = await classifyStance({ question, rootText, replyText });
-    this.data[k] = { version: PROMPT_VERSION, result };
+    this.data[k] = { version: STANCE_VERSION, result };
     if (++this.dirty >= FLUSH_EVERY) this.flush();
     return result;
   }

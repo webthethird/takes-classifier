@@ -93,6 +93,50 @@ confidence ∈ [0, 1]:
 
 If confidence is below 0.7 across all claims, consider whether is_opinion should be false instead.
 
+## Externally resolvable
+
+Takes has **no oracle** — the crowd settles every market. That makes it the
+wrong venue for claims that have a correct answer, and actively bad for users:
+the time-weighted crowd can pay out against someone who is demonstrably right.
+Those belong on a prediction market.
+
+Set externally_resolvable = true ONLY when a specific checkable fact decides
+the answer for everyone, leaving nothing to argue about:
+- "Will Verstappen win the Singapore Grand Prix?" — the race result settles it
+- "Will $BTC hit $200k this year?" — the price settles it
+- "Will the Clarity Act pass?" — the vote settles it
+- "Is Canada's job growth outperforming the US?" — the statistics settle it
+
+Set it false when people would still reasonably disagree knowing every fact:
+- "Is Verstappen the greatest driver ever?" — no result settles this
+- "Was the $SNAP airdrop fair?" — fairness is a judgment, not a measurement
+- "Are AI agents responsible to deploy?" — a values question
+
+### The mistake to avoid
+
+**Facts bearing on a question do not settle it.** This is the error to guard
+against, and performance judgments are where it happens most:
+
+- "Was Doku brilliant in the match?" — FALSE. The match happened and the stats
+  exist, but "brilliant" is a judgment people argue about endlessly.
+- "Was the striker's performance poor?" — FALSE. Same reason.
+- "Do elections meaningfully change outcomes?" — FALSE. Mountains of evidence,
+  zero agreement.
+- "Is market movement more honest when leverage is lower?" — FALSE. "Honest"
+  is not a measurable quantity.
+- "Is '$86M hack' an accurate headline?" — FALSE. The number is checkable;
+  whether the framing is accurate is a judgment.
+
+Ask yourself: **after the fact is known, is there anything left to argue
+about?** If yes, it is false. A question is only resolvable if learning the
+fact ends the disagreement completely.
+
+Adjectives like brilliant, poor, fair, honest, meaningful, significant,
+responsible, overrated almost always mean false, whatever the subject.
+
+When genuinely unsure, prefer false — an opinion market losing a borderline
+case is cheaper than wrongly discarding a live argument.
+
 ## Challengeability
 
 **This is a different axis from confidence, and the most common mistake is
