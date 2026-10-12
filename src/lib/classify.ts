@@ -250,6 +250,19 @@ with no marker. "Listings are just plumbing, they shift access but fundamentals
 stay the same" following a cast that called listings plumbing is AGREEMENT.
 Adding detail, examples or evidence to a claim supports it — it does not oppose it.
 
+## Contrastive openers are not disagreement
+
+"And yet", "but", "still", "that said", "the problem is", "sadly" signal
+tension with an ideal or an added complication — they very often introduce
+MORE support for the same side, not opposition to it.
+
+"And yet most people I meet understand very little about the AI they deploy"
+following a cast about needing understanding and ownership is AGREEING and
+lamenting that the standard isn't met. It is not disagreement.
+
+Decide agreement from what the reply CLAIMS, not from the connective it opens
+with. Ask: would the parent's author object to this reply? If not, it agrees.
+
 ## When SAME_AUTHOR is true
 
 The root's author replying in their own thread is almost always elaborating,

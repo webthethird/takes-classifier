@@ -31,6 +31,7 @@ import type { Claim, IndexedMarket } from "../lib/schema.js";
 import {
   authorCounts,
   identity,
+  reconcileStance,
   pickOpposingReply,
   pickRepresentative,
   scoreCluster,
@@ -136,6 +137,7 @@ async function main() {
   let stancesFound = 0;
   let offTopic = 0;
   let resolvableDropped = 0;
+  let stanceCorrections = 0;
   const rejected: Array<{ id: string; text: string; reason: string }> = [];
 
   // Group into threads. Replies carry parent_text + thread_root_hash; the
@@ -276,15 +278,22 @@ async function main() {
           reply.parent_text,
           identity(reply) === identity(root),
         );
+
         stanceCalls++;
-        if (st.stance === "off_topic") {
+        const isSelf = identity(reply) === identity(root);
+        const { stance: finalStance, corrected } = reconcileStance(
+          st,
+          isSelf ? { rootStance: primary.claim.answer } : undefined,
+        );
+        if (corrected) stanceCorrections++;
+        if (finalStance === "off_topic") {
           offTopic++;
           continue;
         }
         stancesFound++;
         clusters.get(primary.clusterId)!.members.push({
           cast: reply,
-          stance: st.stance,
+          stance: finalStance,
           similarity: 1,
           // A reply inherits the question's challengeability — it didn't
           // raise the question, it answered it.
@@ -292,7 +301,7 @@ async function main() {
           confidence: st.confidence,
           challenge_reason: st.reason,
           via: "stance",
-          stance_parent_says: st.parent_says,
+          stance_parent_says: `parent=${st.parent_stance}, reply ${st.agreement}s${corrected ? ` (model said ${st.stance}, derived ${finalStance})` : ""}`,
         });
       } catch (e) {
         failed++;
@@ -365,6 +374,7 @@ async function main() {
     stance_calls: stanceCalls,
     stances_found: stancesFound,
     stance_off_topic: offTopic,
+    stance_corrections: stanceCorrections,
     resolvable_claims_dropped: resolvableDropped,
     include_resolvable: includeResolvable,
     total_casts: casts.length,
@@ -392,7 +402,7 @@ async function main() {
   console.error(`  Multi-member:   ${report.multi_member_clusters}`);
   console.error(`  Threads:        ${threads.size}`);
   console.error(`  Resolvable:     ${resolvableDropped} claim(s) dropped (prediction-market material)`);
-  console.error(`  Stage-2 calls:  ${stanceCalls} -> ${stancesFound} stances, ${offTopic} off-topic`);
+  console.error(`  Stage-2 calls:  ${stanceCalls} -> ${stancesFound} stances, ${offTopic} off-topic (${stanceCorrections} derived from parent)`);
   console.error(`  Both sides:     ${report.both_sides_clusters}`);
   console.error(`  Written:        ${out}`);
 

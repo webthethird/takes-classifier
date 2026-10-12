@@ -277,6 +277,54 @@ same side is not a reversal however differently it's phrased.
 Measured on one live pull, the four known-bad decisions went to correct, and
 self-contradicting replies fell from 3 to 2 of 33 stage-2 calls.
 
+### Polarity: typed intermediates and a self-reply prior
+
+A second round of inverted stances, all in one cluster, came from a
+negatively-framed question: "Is it responsible to deploy AI agents *without*
+full understanding?" Agreeing that understanding matters means **no**.
+
+The audit showed the model reasoning correctly and then answering the
+opposite. The tell was in its own summary of the parent. When the parent was
+the root it recorded a *stance* ("it is not responsible to...") and got the
+answer right. When the parent was another reply it recorded a *positive
+assertion* ("you must have governance and ownership") — and "agrees with a
+positive statement" became yes, losing the question's polarity.
+
+Free text can't carry polarity. `StanceResult` now asks for typed
+intermediates before the verdict:
+
+- `yes_would_mean` — plain restatement of what YES commits you to, which
+  defuses the negation in the question
+- `parent_stance` — the parent's position on the question as `yes | no | none`,
+  not a prose summary
+- `agreement` — `agree | disagree | neither`, about the parent, not the question
+- `explicit_reversal` — for self-replies only
+
+With those typed, transitivity is mechanical, and `reconcileStance` derives the
+stance rather than trusting the verdict: agreeing with a `no` parent is `no`.
+It defers to the model where derivation can't decide — `none` parent stance,
+`neither` agreement, or `off_topic`.
+
+Two further traps the prompt now names explicitly:
+
+- **Contrastive openers are not disagreement.** "And yet most people understand
+  very little about the AI they deploy" agrees with a parent arguing for
+  understanding; it laments that the standard isn't met. "And yet", "but",
+  "still", "that said" were all being read as opposition. Decide from what the
+  reply claims, not the connective it opens with.
+- **Self-replies keep their author's stance** unless they explicitly retract.
+  Every self-reply assigned an opposing stance in the samples we checked was
+  wrong, so without an explicit reversal the author keeps their own side.
+
+Result on the same cluster: self-contradicting replies went 2 -> 0 across 35
+stage-2 decisions, a praise reply ("I like that you tied ownership to a named
+responsible person") stopped being shown as disagreement, and the genuine
+rebuttal — "the disagreement worth having: approval doesn't scale to 10k agent
+tasks a day" — took the highlight slot instead.
+
+`pickOpposingReply` also weights confidence by how substantive the rebuttal is,
+so a developed counter-argument outranks a terse reaction.
+
 ### Auditing stance decisions
 
 Counts hide inverted stances; reading them doesn't. `pnpm audit-stances`

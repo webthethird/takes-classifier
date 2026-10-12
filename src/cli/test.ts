@@ -12,6 +12,7 @@ import {
   identity,
   pickOpposingReply,
   pickRepresentative,
+  reconcileStance,
   scoreCluster,
   type Member,
 } from "../lib/score.js";
@@ -176,6 +177,88 @@ eq(
   pickRepresentative([member("yes", d2), member("yes", d1)]).cast.id,
 );
 
+/* ─────────────────────── stance reconciliation ─────────────────────── */
+
+// The @bfg / @thejohnnycrypto failure: the model reasoned "agrees with a
+// parent that opposes the question" and then answered yes, because the
+// question was negatively framed ("...without full understanding?").
+eq(
+  "agreeing with a 'no' parent derives no, overriding an inverted verdict",
+  reconcileStance({ parent_stance: "no", agreement: "agree", stance: "yes" }),
+  { stance: "no", corrected: true },
+);
+eq(
+  "disagreeing with a 'no' parent derives yes",
+  reconcileStance({ parent_stance: "no", agreement: "disagree", stance: "no" }),
+  { stance: "yes", corrected: true },
+);
+eq(
+  "agreeing with a 'yes' parent derives yes",
+  reconcileStance({ parent_stance: "yes", agreement: "agree", stance: "yes" }),
+  { stance: "yes", corrected: false },
+);
+eq(
+  "disagreeing with a 'yes' parent derives no",
+  reconcileStance({ parent_stance: "yes", agreement: "disagree", stance: "yes" }),
+  { stance: "no", corrected: true },
+);
+eq(
+  "a parent with no position leaves the verdict alone",
+  reconcileStance({ parent_stance: "none", agreement: "agree", stance: "yes" }),
+  { stance: "yes", corrected: false },
+);
+eq(
+  "neither-agreement leaves the verdict alone",
+  reconcileStance({ parent_stance: "no", agreement: "neither", stance: "yes" }),
+  { stance: "yes", corrected: false },
+);
+eq(
+  "off_topic is never overridden — derivation can't make that judgment",
+  reconcileStance({ parent_stance: "no", agreement: "agree", stance: "off_topic" }),
+  { stance: "off_topic", corrected: false },
+);
+
+// Self-reply prior: an author elaborating in their own thread keeps their
+// stance unless they explicitly retract. "And yet most people don't
+// understand..." is a lament, not a reversal.
+eq(
+  "self-reply without an explicit reversal keeps the author's own stance",
+  reconcileStance(
+    { parent_stance: "no", agreement: "disagree", stance: "yes" },
+    { rootStance: "no" },
+  ),
+  { stance: "no", corrected: true },
+);
+eq(
+  "self-reply already matching the root is left alone",
+  reconcileStance(
+    { parent_stance: "no", agreement: "agree", stance: "no" },
+    { rootStance: "no" },
+  ),
+  { stance: "no", corrected: false },
+);
+eq(
+  "an explicit retraction is allowed to flip the author",
+  reconcileStance(
+    {
+      parent_stance: "yes",
+      agreement: "agree",
+      stance: "yes",
+      explicit_reversal: true,
+    },
+    { rootStance: "no" },
+  ),
+  { stance: "yes", corrected: false },
+);
+eq(
+  "a self-reply judged off_topic stays off_topic",
+  reconcileStance(
+    { parent_stance: "no", agreement: "agree", stance: "off_topic" },
+    { rootStance: "no" },
+  ),
+  { stance: "off_topic", corrected: false },
+);
+
 /* ───────────────────────── opposing reply ──────────────────────────── */
 
 const repMember = member("yes", alice);
@@ -192,6 +275,26 @@ eq(
   ),
   null,
 );
+// A developed counter-argument should beat a one-line reaction even when the
+// one-liner scores slightly higher confidence — this is what put a praise
+// reply in the "someone already disagrees" slot ahead of a real rebuttal.
+{
+  const oneLiner = member("no", cast({ fid: 9, username: "brief" }), {
+    confidence: 0.92,
+  });
+  oneLiner.cast.text = "nah";
+  const developed = member("no", cast({ fid: 10, username: "developed" }), {
+    confidence: 0.75,
+  });
+  developed.cast.text =
+    "the disagreement worth having: approval doesn't scale to 10k agent tasks a day. what scales is approving the rule once, locking payment in escrow, and running the deliverable through a sandbox verifier before money moves.";
+  eq(
+    "a developed rebuttal outranks a terser, more confident one",
+    pickOpposingReply([repMember, oneLiner, developed], repMember)?.cast.username,
+    "developed",
+  );
+}
+
 eq(
   "no opposition returns null",
   pickOpposingReply([repMember, member("yes", bob)], repMember),

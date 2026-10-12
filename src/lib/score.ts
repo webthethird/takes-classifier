@@ -144,6 +144,48 @@ export function scoreCluster(members: Member[]): {
   return { score, bothSides };
 }
 
+/* ─────────────────── Stance reconciliation (stage 2) ───────────────── */
+
+/// When the model records a definite parent stance AND a definite agreement,
+/// the reply's stance follows mechanically. Deriving it instead of trusting
+/// the model's own verdict closes the one failure mode that kept producing
+/// invented disagreements: correct reasoning followed by an inverted answer,
+/// because a negatively-framed question ("...without full understanding?")
+/// flipped polarity somewhere between the reasoning and the verdict.
+///
+/// Returns the model's stance untouched when the intermediates don't pin it
+/// down — `none` parent stance, `neither` agreement, or an off_topic call,
+/// which is a judgment the derivation can't make.
+export function reconcileStance(
+  r: {
+    parent_stance: "yes" | "no" | "none";
+    agreement: "agree" | "disagree" | "neither";
+    stance: "yes" | "no" | "off_topic";
+    explicit_reversal?: boolean;
+  },
+  /// Supplied when the reply is by the root's author, with the root's stance.
+  /// An author elaborating in their own thread defends their position; every
+  /// self-reply assigned an opposing stance in the sample we checked was
+  /// wrong. So without an explicit retraction, they keep their own stance —
+  /// a contrastive opener ("and yet...") is not a reversal.
+  self?: { rootStance: "yes" | "no" },
+): { stance: "yes" | "no" | "off_topic"; corrected: boolean } {
+  if (r.stance === "off_topic") return { stance: "off_topic", corrected: false };
+  if (self && !r.explicit_reversal) {
+    return { stance: self.rootStance, corrected: r.stance !== self.rootStance };
+  }
+  if (r.parent_stance === "none" || r.agreement === "neither") {
+    return { stance: r.stance, corrected: false };
+  }
+  const derived =
+    r.agreement === "agree"
+      ? r.parent_stance
+      : r.parent_stance === "yes"
+        ? "no"
+        : "yes";
+  return { stance: derived, corrected: derived !== r.stance };
+}
+
 /* ──────────────────── Representative cast selection ────────────────── */
 
 /// Which real cast becomes the face of a feed card.
@@ -182,8 +224,14 @@ export function pickOpposingReply(
     (m) => m.stance !== representative.stance && identity(m.cast) !== repId,
   );
   if (opposed.length === 0) return null;
+  // Confidence alone picks one-line reactions over developed counter-arguments.
+  // Weight it by how substantive the rebuttal is, saturating at ~200 chars so
+  // long rambles don't win on length alone.
+  const weight = (m: Member) =>
+    m.confidence * Math.min(1, 0.4 + m.cast.text.trim().length / 200);
   return [...opposed].sort((a, b) => {
-    if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+    const w = weight(b) - weight(a);
+    if (Math.abs(w) > 1e-9) return w;
     return a.cast.id.localeCompare(b.cast.id);
   })[0];
 }

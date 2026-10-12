@@ -94,29 +94,44 @@ export type MatchResult = {
 // disjoint cluster, which is exactly what the first live runs produced.
 
 export const StanceResult = z.object({
-  // Field order is load-bearing. Structured output is emitted in schema
-  // order, so putting the analysis BEFORE the verdict gives the model room to
-  // reason; with stance first it commits to an answer and then rationalises.
-  // Reordering these alone fixed inverted stances on nested replies.
-  parent_says: z
+  // Field order is load-bearing: structured output is emitted in schema order,
+  // so the analysis must come BEFORE the verdict or the model commits first
+  // and rationalises after.
+  //
+  // The intermediates are TYPED, not free text. A prose summary of the parent
+  // loses the question's polarity — "the parent says you must have governance"
+  // reads positive even when the parent's stance on a negatively-framed
+  // question is no. Every observed inversion came through that gap.
+  yes_would_mean: z
     .string()
     .describe(
-      "In one short sentence: what does the PARENT cast assert in relation to the question — does it support yes, support no, or take no position? Say 'parent is the root' if they are the same.",
+      "Plain restatement of what answering YES to this question commits you to. Watch for negation in the question: for 'Is it responsible to act without understanding?', YES means 'it IS responsible even without understanding'.",
+    ),
+  parent_stance: z
+    .enum(["yes", "no", "none"])
+    .describe(
+      "The PARENT cast's position on the question — not a summary of what it says. 'none' if the parent takes no position. If the parent is the root, this is the root author's stance.",
+    ),
+  agreement: z
+    .enum(["agree", "disagree", "neither"])
+    .describe(
+      "Does the reply agree or disagree with the PARENT (not with the question)? Praise, restatement, and adding supporting detail are 'agree'.",
+    ),
+  explicit_reversal: z
+    .boolean()
+    .describe(
+      "Only meaningful when the reply is by the root's author. True ONLY if they explicitly retract or reverse their earlier position ('actually I was wrong', 'changed my mind', 'fair point, I retract'). Adding caveats, lamenting, or arguing the same side harder is NOT a reversal.",
     ),
   reason: z
     .string()
     .describe(
-      "One or two sentences: does the reply agree or disagree with the parent, and what does that imply for the question? Agreement with a parent that opposes yes means the reply also opposes yes.",
+      "One or two sentences tying the above together into the stance below.",
     ),
   stance: z
     .enum(["yes", "no", "off_topic"])
     .describe(
-      "Where the reply lands on the GIVEN question, following from the reasoning above. 'off_topic' when it takes no position on this specific question.",
+      "Where the reply lands on the question. When parent_stance is yes/no and agreement is agree/disagree, this follows mechanically: agreeing with a 'no' parent is 'no'; disagreeing with a 'no' parent is 'yes'.",
     ),
-  confidence: z
-    .number()
-    .min(0)
-    .max(1)
-    .describe("Confidence in the stance call."),
+  confidence: z.number().min(0).max(1).describe("Confidence in the stance call."),
 });
 export type StanceResult = z.infer<typeof StanceResult>;
