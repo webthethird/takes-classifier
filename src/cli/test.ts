@@ -11,6 +11,7 @@ import {
   bothSidesOf,
   identity,
   pickOpposingReply,
+  assignRepresentatives,
   pickRepresentative,
   reconcileStance,
   scoreCluster,
@@ -207,7 +208,7 @@ const rep = pickRepresentative([
 ]);
 eq(
   "representative prefers the cast the question came from",
-  rep.cast.username,
+  rep?.cast.username,
   "root",
 );
 
@@ -218,7 +219,7 @@ eq(
   pickRepresentative([
     member("yes", a, { challengeability: 0.8 }),
     member("yes", b, { challengeability: 0.8 }),
-  ]).cast.username,
+  ])?.cast.username,
   "b",
 );
 
@@ -226,9 +227,48 @@ const d1 = cast({ fid: 1, username: "z" });
 const d2 = cast({ fid: 2, username: "y" });
 eq(
   "selection is deterministic across orderings",
-  pickRepresentative([member("yes", d1), member("yes", d2)]).cast.id,
-  pickRepresentative([member("yes", d2), member("yes", d1)]).cast.id,
+  pickRepresentative([member("yes", d1), member("yes", d2)])?.cast.id,
+  pickRepresentative([member("yes", d2), member("yes", d1)])?.cast.id,
 );
+
+// One cast must never front two cards. Stage 1 can return several claims for
+// a single cast, each becoming its own cluster — in cast-first layout that
+// showed the identical cast text twice under two near-identical questions.
+{
+  const shared = cast({ fid: 50, username: "shared" });
+  const other = cast({ fid: 51, username: "other" });
+  const assigned = assignRepresentatives([
+    { members: [member("yes", shared)] },
+    { members: [member("yes", shared), member("no", other)] },
+  ]);
+  eq("both clusters survive when an alternative member exists", assigned.length, 2);
+  eq(
+    "the second cluster falls back to a different cast",
+    assigned.map((a) => a.representative.cast.username),
+    ["shared", "other"],
+  );
+}
+{
+  const shared = cast({ fid: 52, username: "solo" });
+  const assigned = assignRepresentatives([
+    { members: [member("yes", shared)] },
+    { members: [member("yes", shared)] },
+  ]);
+  eq(
+    "a cluster with no unused member is dropped rather than duplicated",
+    assigned.length,
+    1,
+  );
+}
+{
+  const a1 = cast({ fid: 60, username: "a" });
+  const b1 = cast({ fid: 61, username: "b" });
+  const assigned = assignRepresentatives([
+    { members: [member("yes", a1)] },
+    { members: [member("yes", b1)] },
+  ]);
+  eq("distinct clusters are untouched", assigned.length, 2);
+}
 
 /* ─────────────────────── stance reconciliation ─────────────────────── */
 

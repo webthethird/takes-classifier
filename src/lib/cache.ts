@@ -21,7 +21,7 @@ import { ClassifyResult, StanceResult } from "./schema.js";
 /// Versioned separately so changing one prompt doesn't discard the other's
 /// cached results — they're independent calls with independent schemas.
 /// v3 added `externally_resolvable` to Claim.
-const CLASSIFY_VERSION = "v4";
+const CLASSIFY_VERSION = "v5";
 const STANCE_VERSION = "v5";
 const CACHE_PATH = ".cache/classify.json";
 /// Flush every N new entries. Small enough that a kill loses almost nothing,

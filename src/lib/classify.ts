@@ -79,6 +79,26 @@ Multiple claims are NOT appropriate for:
 
 When in doubt, prefer one claim. Splitting a coherent take fragments markets and dilutes liquidity.
 
+**The test: would the two questions attract the same people arguing the same
+thing?** If yes, it is ONE claim. Observed failures, all of which should have
+been a single claim:
+
+- "Contrarianism is easier than most people think" produced BOTH "Is
+  contrarianism easier to practice than most people believe?" AND "Does a
+  cognitive bias exist that makes contrarian views seem more credible?" — the
+  second is the mechanism behind the first, not a separate assertion.
+- "Open interest climbing while spot volume stays thin is what makes a rally
+  fragile" produced BOTH "Do leveraged rallies without strong spot volume tend
+  to reverse?" AND "Is spot bid strength a reliable indicator of sustainable
+  momentum?" — the same claim stated from each side.
+- A cast about GOP seating strategy produced both a predictive question about
+  whether they will attempt it and an evaluative one about whether it is
+  problematic. Pick the one the caster is actually asserting.
+
+Do not emit a claim for the *mechanism*, *implication*, or *inverse* of another
+claim from the same cast. Those are the same argument. And never emit the same
+point phrased once positively and once negatively.
+
 ## Reply context
 
 If the cast is a reply, the parent cast text is provided in <parent> tags. Use the parent for context — the reply's stance often only makes sense relative to it.

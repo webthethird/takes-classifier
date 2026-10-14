@@ -218,10 +218,22 @@ export function reconcileStance(
 ///   2. higher challengeability
 ///   3. more engagement, as a tiebreak for which cast reads as more alive
 ///   4. cast id, purely so the choice is deterministic across runs
-export function pickRepresentative(members: Member[]): Member {
+export function pickRepresentative(
+  members: Member[],
+  /// Cast ids already fronting a higher-ranked card. Stage 1 can return
+  /// several claims for one cast, each becoming its own cluster, so without
+  /// this the same cast headlines two cards — which in cast-first layout is
+  /// the same words twice under different questions.
+  exclude?: ReadonlySet<string>,
+): Member | null {
+  const pool =
+    exclude && exclude.size > 0
+      ? members.filter((m) => !exclude.has(m.cast.id))
+      : members;
+  if (pool.length === 0) return null;
   const engagement = (m: Member) =>
     (m.cast.replies ?? 0) + (m.cast.recasts ?? 0) + (m.cast.likes ?? 0);
-  return [...members].sort((a, b) => {
+  return [...pool].sort((a, b) => {
     if (a.via !== b.via) return a.via === "claim" ? -1 : 1;
     if (b.challengeability !== a.challengeability) {
       return b.challengeability - a.challengeability;
@@ -230,6 +242,26 @@ export function pickRepresentative(members: Member[]): Member {
     if (e !== 0) return e;
     return a.cast.id.localeCompare(b.cast.id);
   })[0];
+}
+
+/// Assigns each cluster a representative no other cluster is already using,
+/// walking in rank order so the highest-scoring card keeps its best cast.
+/// A cluster with no unused member left is dropped: its claim was a rephrasing
+/// of one already shown, and a second card adds nothing a reader wants.
+///
+/// Returns the surviving clusters paired with their representative, in order.
+export function assignRepresentatives<T extends { members: Member[] }>(
+  rankedClusters: readonly T[],
+): Array<{ cluster: T; representative: Member }> {
+  const used = new Set<string>();
+  const out: Array<{ cluster: T; representative: Member }> = [];
+  for (const cluster of rankedClusters) {
+    const rep = pickRepresentative(cluster.members, used);
+    if (!rep) continue;
+    used.add(rep.cast.id);
+    out.push({ cluster, representative: rep });
+  }
+  return out;
 }
 
 /// The strongest reply that disagrees with the representative cast, if any.

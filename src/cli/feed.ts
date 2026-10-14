@@ -29,6 +29,7 @@ import { fileSource, type CastSource, type RawCast } from "../lib/corpus.js";
 import { neynarSource } from "../lib/neynar.js";
 import type { Claim, IndexedMarket } from "../lib/schema.js";
 import {
+  assignRepresentatives,
   authorCounts,
   identity,
   reconcileStance,
@@ -342,32 +343,41 @@ async function main() {
 
   cache.flush();
 
-  const ranked = [...clusters.values()]
-    .map((c) => {
-      const { score, bothSides } = scoreCluster(c.members);
-      // Lead with the reason from the most challengeable member — it's the
-      // one that framed the disagreement most sharply.
-      const best = [...c.members].sort(
-        (a, b) => b.challengeability - a.challengeability,
-      )[0];
-      const representative = pickRepresentative(c.members);
-      const opposing = pickOpposingReply(c.members, representative);
-      return {
-        ...c,
-        score,
-        both_sides: bothSides,
-        challenge_reason: best.challenge_reason,
-        ...authorCounts(c.members),
-        // The real cast that fronts the card in cast-first rendering, plus
-        // what Back/Challenge mean relative to ITS stance. Resolved here so
-        // the renderer never has to re-derive it (and can't disagree).
-        representative_cast_id: representative.cast.id,
-        back_means: representative.stance,
-        challenge_means: representative.stance === "yes" ? "no" : "yes",
-        opposing_cast_id: opposing?.cast.id ?? null,
-      };
-    })
+  // Score and sort first, THEN assign representatives in rank order: the
+  // highest-scoring card keeps its best cast, and lower cards fall back to a
+  // different member or drop out entirely. Assigning before sorting let one
+  // cast front two cards.
+  const scored = [...clusters.values()]
+    .map((c) => ({ cluster: c, ...scoreCluster(c.members) }))
     .sort((a, b) => b.score - a.score);
+
+  const assigned = assignRepresentatives(scored.map((s) => s.cluster));
+  const scoreOf = new Map(scored.map((s) => [s.cluster.id, s]));
+  const duplicateCardsDropped = scored.length - assigned.length;
+
+  const ranked = assigned.map(({ cluster: c, representative }) => {
+    const { score, bothSides } = scoreOf.get(c.id)!;
+    // Lead with the reason from the most challengeable member — it's the
+    // one that framed the disagreement most sharply.
+    const best = [...c.members].sort(
+      (a, b) => b.challengeability - a.challengeability,
+    )[0];
+    const opposing = pickOpposingReply(c.members, representative);
+    return {
+      ...c,
+      score,
+      both_sides: bothSides,
+      challenge_reason: best.challenge_reason,
+      ...authorCounts(c.members),
+      // The real cast that fronts the card in cast-first rendering, plus
+      // what Back/Challenge mean relative to ITS stance. Resolved here so
+      // the renderer never has to re-derive it (and can't disagree).
+      representative_cast_id: representative.cast.id,
+      back_means: representative.stance,
+      challenge_means: representative.stance === "yes" ? "no" : "yes",
+      opposing_cast_id: opposing?.cast.id ?? null,
+    };
+  });
 
   const report = {
     generated_at: new Date().toISOString(),
@@ -380,6 +390,7 @@ async function main() {
     stance_off_topic: offTopic,
     stance_corrections: stanceCorrections,
     resolvable_claims_dropped: resolvableDropped,
+    duplicate_cards_dropped: duplicateCardsDropped,
     include_resolvable: includeResolvable,
     total_casts: casts.length,
     classified,
@@ -406,6 +417,7 @@ async function main() {
   console.error(`  Multi-member:   ${report.multi_member_clusters}`);
   console.error(`  Threads:        ${threads.size}`);
   console.error(`  Resolvable:     ${resolvableDropped} claim(s) dropped (prediction-market material)`);
+  console.error(`  Duplicates:     ${duplicateCardsDropped} card(s) dropped (same cast already shown)`);
   console.error(`  Stage-2 calls:  ${stanceCalls} -> ${stancesFound} stances, ${offTopic} off-topic (${stanceCorrections} derived from parent)`);
   console.error(`  Both sides:     ${report.both_sides_clusters}`);
   console.error(`  Written:        ${out}`);

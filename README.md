@@ -363,6 +363,46 @@ tasks a day" — took the highlight slot instead.
 `pickOpposingReply` also weights confidence by how substantive the rebuttal is,
 so a developed counter-argument outranks a terse reaction.
 
+### Deduplication
+
+Near-duplicate cards reached the feed in three distinct ways, each needing a
+different fix.
+
+**One cast fronting two cards.** Stage 1 can return several claims for a single
+cast; each becomes its own cluster, and the same cast gets picked to front both.
+In cast-first layout that is literally the same words twice under two questions.
+Representatives are now assigned *after* ranking, walking in score order:
+`assignRepresentatives` gives the top card its best cast, and a lower card
+either falls back to a different member or is dropped (reported as
+`duplicate_cards_dropped`). This is a structural guarantee — it holds regardless
+of how the classifier behaves.
+
+**The classifier over-splitting one point.** The pairs it produced were a claim
+and its own mechanism, or the same claim stated from each side:
+
+```
+"Contrarianism is easier than most people think"
+  -> Is contrarianism easier to practice than most people believe?
+  -> Does a cognitive bias exist that makes contrarian views seem credible?
+```
+
+The prompt's test is now explicit: *would the two questions attract the same
+people arguing the same thing?* It names the observed failures and forbids
+emitting a claim for the mechanism, implication, or inverse of another claim
+from the same cast.
+
+**The match threshold being marginally too strict.** "Is the new press secretary
+competent?" and "...performing well?" sat at 0.843, just under the old 0.85.
+Measured across 208 pooled questions, the `[0.80, 0.85)` band is overwhelmingly
+genuine duplicates — "diesel deal strategically significant" / "fuel deal
+geopolitically significant", "attract the most builders" / "earn the most
+builders". `MATCH_THRESHOLD` is now **0.82**, overridable by env var to
+re-measure. The clearest false merge in that band (Raikkonen championship vs
+Singapore GP) is a predictive claim the resolvable filter drops first.
+
+After all three: 0 duplicate lead casts, and the most similar remaining
+question pair in a live feed sits at 0.522 — a wide margin below threshold.
+
 ### Auditing stance decisions
 
 Counts hide inverted stances; reading them doesn't. `pnpm audit-stances`

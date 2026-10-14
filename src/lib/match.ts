@@ -1,7 +1,19 @@
 import { Claim, IndexedMarket, MatchResult } from "./schema.js";
 import { cosine } from "./embed.js";
 
-export const MATCH_THRESHOLD = 0.85;
+/// Cosine similarity at which two questions are the same market.
+///
+/// Lowered from 0.85 after near-duplicate cards reached the feed: "Is the new
+/// press secretary competent?" and "...performing well?" sat at 0.843, just
+/// under the old bar. Measured over 208 pooled questions, the [0.80, 0.85)
+/// band is overwhelmingly genuine duplicates — "diesel deal strategically
+/// significant" / "fuel deal geopolitically significant",  "attract the most
+/// builders" / "earn the most builders". The clearest false merge in that band
+/// (Raikkonen championship vs Singapore GP) is a predictive claim the
+/// externally-resolvable filter drops before it can reach a card.
+///
+/// Override with MATCH_THRESHOLD to re-measure.
+export const MATCH_THRESHOLD = Number(process.env.MATCH_THRESHOLD ?? 0.82);
 export const AMBIGUOUS_THRESHOLD = 0.7;
 
 export type MatchOutcome =
