@@ -481,6 +481,49 @@ Identity prefers FID over username, since usernames are mutable. `pnpm test`
 covers self-replies, mixed-stance authors, independent opposition, and
 deterministic representative selection.
 
+### Where candidates come from
+
+Search is the primary source, not channels. Measured over 15 queries:
+**1,372 distinct casts, 75% of them in no channel at all.** Channel feeds were
+missing three quarters of the relevant conversation, and with no trending-cast
+endpoint, semantic search is the only way to reach those casts.
+
+```sh
+pnpm feed --search-preset --max-age 14 --unchallenged 80 --top 40
+```
+
+Three measured properties shape `OPINION_QUERIES`:
+
+- **Queries are near-disjoint** — each contributes ~99-100 casts the others
+  don't, so reach grows almost linearly with the query count.
+- **Short natural phrasings win.** "controversial opinion" returns 100;
+  "unpopular opinion that people disagree with" returns 15. Write them the way
+  someone would actually cast.
+- **`mode` is irrelevant.** literal, semantic and hybrid returned identical
+  result sets, so hybrid is pure wasted calls.
+
+`OPINION_CHANNELS` (hottakes, debate, hot-takes, unpopularopinion) ride along
+with every live pull. They're low-volume — 100 casts spans eight months — but
+**74% of their casts pass the substance filter**, against ~12% for a general
+channel. Quality, not freshness.
+
+### The binding constraint is supply, not strategy
+
+Worth knowing before reaching for a wider net: **only ~17% of search results
+are within 14 days.** Search achieves its breadth largely *through history*, so
+"more queries" and "a longer time window" are substantially the same lever.
+Across all 15 queries, Farcaster yields roughly **230 candidate casts in 14
+days** before substance and reply filtering.
+
+`sort_type=desc_chron` is set on search calls and does order results
+newest-first, but it does *not* widen the recent pool — measured, 17% within 14
+days with it versus 16% without. There is no tuning that produces more recent
+spicy casts than Farcaster produces.
+
+So `--max-age N` is an explicit dial rather than an accident. At 14 days it cut
+1,488 candidates to 237. Recent-and-small or large-and-stale is a real choice,
+not a bug.
+
 ### Adding a live source
 
 `src/lib/corpus.ts` defines `CastSource`; nothing downstream of it knows where

@@ -26,7 +26,11 @@ import { ClassifyCache } from "../lib/cache.js";
 import { embed } from "../lib/embed.js";
 import { findMatch } from "../lib/match.js";
 import { fileSource, type CastSource, type RawCast } from "../lib/corpus.js";
-import { neynarSource } from "../lib/neynar.js";
+import {
+  OPINION_CHANNELS,
+  OPINION_QUERIES,
+  neynarSource,
+} from "../lib/neynar.js";
 import type { Claim, IndexedMarket } from "../lib/schema.js";
 import {
   assignRepresentatives,
@@ -54,6 +58,8 @@ async function main() {
   let includeResolvable = false;
   let pages = 1;
   let unchallenged = 0;
+  let noDefaultChannels = false;
+  let maxAgeDays: number | undefined;
   const searches: string[] = [];
   let trendingWindow: "1d" | "7d" | "30d" | undefined;
   let maxThreads = 15;
@@ -69,6 +75,9 @@ async function main() {
     else if (args[i] === "--min-chars") minChars = parseInt(args[++i], 10);
     else if (args[i] === "--pages") pages = parseInt(args[++i], 10);
     else if (args[i] === "--search") searches.push(args[++i]);
+    else if (args[i] === "--search-preset") searches.push(...OPINION_QUERIES);
+    else if (args[i] === "--no-default-channels") noDefaultChannels = true;
+    else if (args[i] === "--max-age") maxAgeDays = parseInt(args[++i], 10);
     else if (args[i] === "--unchallenged") unchallenged = parseInt(args[++i], 10);
     else if (args[i] === "--trending-channels")
       trendingWindow = (args[++i] as "1d" | "7d" | "30d") ?? "1d";
@@ -79,15 +88,22 @@ async function main() {
   }
 
   const live = channels.length > 0 || trendingWindow !== undefined || searches.length > 0;
+  // The dedicated opinion channels ride along with any live pull. They're
+  // small enough to be cheap and on-topic enough to always be worth it.
+  if (live && !noDefaultChannels) {
+    for (const c of OPINION_CHANNELS) if (!channels.includes(c)) channels.push(c);
+  }
   if (paths.length === 0 && !live) {
     console.error(
       "Usage:\n" +
         "  pnpm feed [--top N] <corpus.json...>              static corpora\n" +
         "  pnpm feed --channel base --channel crypto         live channels (repeatable)\n" +
         "  pnpm feed --trending-channels 1d                 discover channels dynamically\n" +
-        "  pnpm feed --search \"unpopular take\"              semantic search, network-wide\n" +
+        "  pnpm feed --search-preset                        all curated opinion queries (recommended)\n" +
+        "  pnpm feed --search \"hot take\"                    one semantic search, network-wide\n" +
         "  --include-resolvable                             keep prediction-market claims\n" +
         "  --unchallenged N                                 also pull N substantive casts with no replies\n" +
+        "  --max-age N                                      drop candidates older than N days\n" +
         "Live options: --candidates N --min-replies N --min-chars N --max-threads N --reply-depth N\n" +
         "Live sources need NEYNAR_API_KEY.",
     );
@@ -112,6 +128,7 @@ async function main() {
         minChars,
         pages,
         searches,
+        maxAgeDays,
         unchallenged,
         trendingChannels: trendingWindow
           ? { window: trendingWindow, limit: 10 }

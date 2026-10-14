@@ -100,6 +100,12 @@ export type NeynarOptions = {
   /// threads — there is nothing to expand — so they cost one stage-1 call
   /// each and no conversation fetch.
   unchallenged?: number;
+  /// Drop candidates older than this many days. The dedicated opinion
+  /// channels are low-volume — 100 casts from /hottakes spans eight months —
+  /// and deep pagination also skews old, since older casts have had longer to
+  /// accumulate the replies the engagement filter selects on. A card about a
+  /// news cycle from last February is worse than no card.
+  maxAgeDays?: number;
   /// Pages to walk per channel batch. /feed/channels/ returns `limit` casts
   /// TOTAL across the batch (max 100), not per channel, so depth comes from
   /// paginating rather than from adding channels.
@@ -131,6 +137,54 @@ async function neynarGet<T>(
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/* ─────────────────────── Search queries ────────────────────────────── */
+//
+// Search is the primary source, not channels. Measured over 17 queries:
+// 1,382 distinct casts, of which **75% are in no channel at all**. Channel
+// feeds were therefore missing the large majority of Farcaster — and since
+// there is no trending-cast endpoint, semantic search is the only way to
+// reach those casts.
+//
+// Two measured properties shape this list:
+//   - Queries are near-disjoint. Each of these contributes ~99-100 casts the
+//     others didn't, so adding queries adds reach almost linearly.
+//   - Short, natural, cast-like phrasings win. "controversial opinion"
+//     returns 100; "unpopular opinion that people disagree with" returns 15.
+//     Write them the way a person would actually type, not as a description
+//     of what you want.
+//
+// `mode=hybrid` is deliberately unused: it returned byte-identical sets to
+// `semantic` on every query tried, so it only doubles the request count.
+export const OPINION_QUERIES = [
+  "controversial opinion",
+  "hot take",
+  "change my mind",
+  "this is overrated and here is why",
+  "everyone is wrong about this",
+  "most people are wrong about",
+  "I will die on this hill",
+  "actually I think the opposite",
+  "I don't think that's right at all",
+  "honestly this is a mistake",
+  "this is a bad idea and here's why",
+  "this take will be unpopular but",
+  "nobody wants to admit this",
+  "the real problem nobody talks about",
+  "people are sleeping on this",
+] as const;
+
+/// Channels that exist specifically for contested opinions. Small, but the
+/// hit rate is far better than a general-interest channel, so they're always
+/// included alongside search rather than being something you remember to ask
+/// for. Follower counts at time of writing: hottakes 2.5k, debate 314,
+/// hot-takes 129, unpopularopinion 103.
+export const OPINION_CHANNELS = [
+  "hottakes",
+  "debate",
+  "hot-takes",
+  "unpopularopinion",
+] as const;
 
 /* ───────────────────── Substance pre-filter ────────────────────────── */
 //
@@ -217,6 +271,7 @@ export function neynarSource(opts: NeynarOptions): CastSource {
     minChars,
     trendingChannels,
     searches = [],
+    maxAgeDays,
     pages = 1,
     unchallenged = 0,
   } = opts;
@@ -282,15 +337,44 @@ export function neynarSource(opts: NeynarOptions): CastSource {
       }
       // 2b. Semantic search — network-wide, not channel-bound.
       for (const q of searches) {
+        // sort_type=desc_chron is the freshness lever. Without it, search
+        // ranks by relevance across all time and returns mostly old casts —
+        // measured, 84% of results were older than 14 days. With it, the same
+        // queries surface their most recent matches instead.
+        //
+        // `mode` is then irrelevant: literal, semantic and hybrid returned
+        // byte-identical result sets once sort_type was set. Left at semantic
+        // so the queries can stay natural-language.
         const res = await neynarGet<{ result?: { casts?: NeynarCast[] } }>(
           "/cast/search/",
-          { q, mode: "semantic", limit: Math.min(candidates, 100) },
+          {
+            q,
+            mode: "semantic",
+            sort_type: "desc_chron",
+            limit: Math.min(candidates, 100),
+          },
           apiKey,
         );
         const got = res.result?.casts ?? [];
         console.error(`[neynar] search ${JSON.stringify(q)}: ${got.length} candidates`);
         pulled.push(...got);
         await sleep(delayMs);
+      }
+
+      // Age filter, before anything is spent on it.
+      if (maxAgeDays !== undefined) {
+        const cutoff = Date.now() - maxAgeDays * 86_400_000;
+        const before = pulled.length;
+        const fresh = pulled.filter((c) => {
+          if (!c.timestamp) return true;
+          const t = new Date(c.timestamp).getTime();
+          return Number.isNaN(t) || t >= cutoff;
+        });
+        pulled.length = 0;
+        pulled.push(...fresh);
+        console.error(
+          `[neynar] age filter (<=${maxAgeDays}d): ${before} -> ${pulled.length}`,
+        );
       }
 
       // Dedupe — a cast can arrive from both a channel feed and a search.
