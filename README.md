@@ -231,14 +231,52 @@ Known remaining miss: "Is market movement more honest when leverage is lower?"
 is still marked resolvable despite appearing verbatim in the prompt as a
 counter-example.
 
+### Two candidate lanes
+
+Filtering candidates on reply count excludes every provocative cast nobody has
+answered yet — which is precisely what the feed exists to surface. So there are
+two lanes, merged and deduped by cast hash before ranking:
+
+1. **Existing debate** — substantive casts with `>= --min-replies` replies,
+   expanded into threads and run through stage 1 + stage 2.
+2. **Unchallenged hot takes** (`--unchallenged N`) — substantive casts
+   regardless of reply count, newest first, never expanded. One stage-1 call
+   each, no conversation fetch, so the lane is cheap.
+
+Measured on a live pull, the unchallenged lane contributed 5 of 21 feed cards,
+all with zero replies.
+
 ### Ranking: challengeable beats challenged
 
 The boosts for contested and multi-member clusters were originally 1.5x and
 2.0x, which inverted the product promise — a mediocre 0.5-challengeability
 thread that happened to be contested outranked a 0.95 take nobody had replied
-to yet. But the feed exists to surface opinions you COULD challenge, not
-arguments already in progress. Boosts are now 1.2x and 1.4x: observed
-disagreement corroborates, it doesn't dominate.
+to yet. Reducing them to 1.2x and 1.4x helped but did not fix it, because the
+problem was structural rather than a weighting accident: **a cast with zero
+replies cannot accumulate members**, so any size multiplier locks the entire
+unchallenged lane out of the top of the feed.
+
+Measured with both lanes running, the two populations had near-identical median
+challengeability (0.60 unchallenged vs 0.62 threads) but clearly different
+median scores (0.52 vs 0.61), and 9 of 29 ranking inversions were a thread
+beating a *more* challengeable take that happened to have no replies.
+
+So corroboration no longer multiplies — it reorders within a tier.
+Challengeability is gated by confidence, quantized into 0.1 bands, and
+`both_sides` plus distinct-author credit only sorts cards *inside* a band:
+
+| inversions measured against | before | after |
+| --- | --- | --- |
+| band (the actual tier) | — | **0**, by construction |
+| confidence-gated challengeability | — | 17 |
+| raw challengeability | 29 | 26 |
+
+A 0.70 take never loses to a 0.60 take. The remaining reorderings are all
+within-band, with gated differences of 0.003–0.041 — noise settled by real
+disagreement, which is the intent. (Inversions against *raw* challengeability
+include the confidence gate deliberately demoting shaky extractions.)
+
+Author credit counts distinct people, not casts.
 
 `both_sides` also requires *different people* on opposing sides. Self-replies
 are common on Farcaster, and counting them inflated the first measurement from

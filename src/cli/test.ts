@@ -136,6 +136,59 @@ check(
 check("contested flag set", contestedWeak.bothSides);
 check("uncontested flag clear", !uncontestedStrong.bothSides);
 
+// The structural penalty this scoring exists to remove. An unchallenged cast
+// can never accumulate members, so corroboration must not leapfrog a
+// challengeability tier — measured live, a 0.60 thread was beating a 0.70
+// take with no replies.
+{
+  const soloHigh = scoreCluster([
+    member("yes", alice, { challengeability: 0.7, confidence: 1 }),
+  ]);
+  const threadLow = scoreCluster([
+    member("yes", cast({ fid: 20 }), { challengeability: 0.6, confidence: 1 }),
+    member("no", cast({ fid: 21 }), { challengeability: 0.6, confidence: 1 }),
+    member("yes", cast({ fid: 22 }), { challengeability: 0.6, confidence: 1 }),
+    member("no", cast({ fid: 23 }), { challengeability: 0.6, confidence: 1 }),
+  ]);
+  check(
+    "a 0.70 unchallenged take beats a 0.60 contested 4-person thread",
+    soloHigh.score > threadLow.score,
+  );
+}
+
+// Within a band, corroboration is what orders them.
+{
+  const solo = scoreCluster([
+    member("yes", alice, { challengeability: 0.74, confidence: 1 }),
+  ]);
+  const contested = scoreCluster([
+    member("yes", cast({ fid: 30 }), { challengeability: 0.71, confidence: 1 }),
+    member("no", cast({ fid: 31 }), { challengeability: 0.71, confidence: 1 }),
+  ]);
+  check(
+    "inside one band, real disagreement wins",
+    contested.score > solo.score,
+  );
+}
+
+// Cluster size counts people, not messages.
+{
+  const onePersonFourCasts = scoreCluster([
+    member("yes", cast({ fid: 40 }), { challengeability: 0.6, confidence: 1 }),
+    member("yes", cast({ fid: 40 }), { challengeability: 0.6, confidence: 1 }),
+    member("yes", cast({ fid: 40 }), { challengeability: 0.6, confidence: 1 }),
+    member("yes", cast({ fid: 40 }), { challengeability: 0.6, confidence: 1 }),
+  ]);
+  const twoPeople = scoreCluster([
+    member("yes", cast({ fid: 41 }), { challengeability: 0.6, confidence: 1 }),
+    member("yes", cast({ fid: 42 }), { challengeability: 0.6, confidence: 1 }),
+  ]);
+  check(
+    "one author posting four times does not outrank two people",
+    twoPeople.score > onePersonFourCasts.score,
+  );
+}
+
 const lowConfidence = scoreCluster([
   member("yes", alice, { challengeability: 0.95, confidence: 0.1 }),
 ]);

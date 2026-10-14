@@ -52,6 +52,7 @@ async function main() {
   let minChars = 40;
   let includeResolvable = false;
   let pages = 1;
+  let unchallenged = 0;
   const searches: string[] = [];
   let trendingWindow: "1d" | "7d" | "30d" | undefined;
   let maxThreads = 15;
@@ -67,6 +68,7 @@ async function main() {
     else if (args[i] === "--min-chars") minChars = parseInt(args[++i], 10);
     else if (args[i] === "--pages") pages = parseInt(args[++i], 10);
     else if (args[i] === "--search") searches.push(args[++i]);
+    else if (args[i] === "--unchallenged") unchallenged = parseInt(args[++i], 10);
     else if (args[i] === "--trending-channels")
       trendingWindow = (args[++i] as "1d" | "7d" | "30d") ?? "1d";
     else if (args[i] === "--min-replies") minReplies = parseInt(args[++i], 10);
@@ -84,6 +86,7 @@ async function main() {
         "  pnpm feed --trending-channels 1d                 discover channels dynamically\n" +
         "  pnpm feed --search \"unpopular take\"              semantic search, network-wide\n" +
         "  --include-resolvable                             keep prediction-market claims\n" +
+        "  --unchallenged N                                 also pull N substantive casts with no replies\n" +
         "Live options: --candidates N --min-replies N --min-chars N --max-threads N --reply-depth N\n" +
         "Live sources need NEYNAR_API_KEY.",
     );
@@ -108,6 +111,7 @@ async function main() {
         minChars,
         pages,
         searches,
+        unchallenged,
         trendingChannels: trendingWindow
           ? { window: trendingWindow, limit: 10 }
           : undefined,

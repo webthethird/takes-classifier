@@ -93,6 +93,13 @@ export type NeynarOptions = {
   /// is how we escape channel scope. Results are merged with channel
   /// candidates and deduped by hash.
   searches?: string[];
+  /// How many substantive casts to take REGARDLESS of reply count. This is
+  /// the unchallenged-hot-take lane: a sharp opinion nobody has answered yet
+  /// is the thing the feed exists to surface, and filtering candidates on
+  /// reply count excludes every one of them. These are never expanded into
+  /// threads — there is nothing to expand — so they cost one stage-1 call
+  /// each and no conversation fetch.
+  unchallenged?: number;
   /// Pages to walk per channel batch. /feed/channels/ returns `limit` casts
   /// TOTAL across the batch (max 100), not per channel, so depth comes from
   /// paginating rather than from adding channels.
@@ -211,6 +218,7 @@ export function neynarSource(opts: NeynarOptions): CastSource {
     trendingChannels,
     searches = [],
     pages = 1,
+    unchallenged = 0,
   } = opts;
 
   const label =
@@ -313,6 +321,31 @@ export function neynarSource(opts: NeynarOptions): CastSource {
         `[neynar] ${pulled.length} candidates -> ${enoughReplies.length} with >=${minReplies} replies -> ${contested.length} substantive`,
       );
 
+      // 3b. Unchallenged lane. Substantive casts nobody has replied to (or
+      //     that didn't make the thread cut), newest first. Ranking decides
+      //     whether they deserve the top of the feed; candidate selection
+      //     shouldn't make that call for it.
+      const expanding = new Set(contested.map((c) => c.hash));
+      const solo =
+        unchallenged > 0
+          ? pulled
+              .filter(
+                (c) =>
+                  !expanding.has(c.hash) &&
+                  looksSubstantive(c.text ?? "", minChars),
+              )
+              .sort((a, b) =>
+                (b.timestamp ?? "").localeCompare(a.timestamp ?? ""),
+              )
+              .slice(0, unchallenged)
+          : [];
+      if (unchallenged > 0) {
+        const noReplies = solo.filter((c) => (c.replies?.count ?? 0) === 0).length;
+        console.error(
+          `[neynar] unchallenged lane: ${solo.length} standalone casts (${noReplies} with zero replies)`,
+        );
+      }
+
       // 3. Expand each into a thread.
       const out: RawCast[] = [];
       const seen = new Set<string>();
@@ -348,6 +381,12 @@ export function neynarSource(opts: NeynarOptions): CastSource {
           console.error(`[neynar] thread ${cand.hash} failed: ${String(e).slice(0, 160)}`);
         }
         await sleep(delayMs);
+      }
+
+      for (const c of solo) {
+        if (seen.has(c.hash)) continue;
+        seen.add(c.hash);
+        out.push(toRawCast(c));
       }
 
       const withParents = out.filter((c) => c.parent_text).length;

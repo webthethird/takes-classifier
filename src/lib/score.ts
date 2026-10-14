@@ -16,11 +16,28 @@ import type { Claim } from "./schema.js";
 // 0.5-challengeability thread that happened to be contested beat a 0.95 take
 // nobody had replied to yet (0.5 x 2.0 x 1.5 = 1.50 vs 0.95).
 
-/// Multiplier when different people hold opposing stances.
-export const BOTH_SIDES_BOOST = 1.2;
-/// Added per extra cast in a cluster, capped by MAX_SIZE_BOOST.
-export const PER_MEMBER_BOOST = 0.15;
-export const MAX_SIZE_BOOST = 1.4;
+/// Challengeability is quantized into bands before ranking, and corroboration
+/// only reorders WITHIN a band. Multiplying instead let corroboration leapfrog
+/// tiers: measured on a live pull, a 0.60-challengeability thread outranked a
+/// 0.70 unchallenged take, and 9 of 29 ranking inversions were a thread
+/// beating a more challengeable take that had no replies.
+///
+/// That was structural, not a weighting accident. A cast with zero replies
+/// cannot accumulate members, so a size multiplier locks an entire lane out of
+/// the top of the feed — the lane holding exactly what the product promises to
+/// surface: opinions you COULD challenge, not arguments already underway.
+///
+/// 0.1 bands: a 0.70 take always outranks a 0.60 take; 0.72 vs 0.75 is noise
+/// and gets settled by evidence of real disagreement.
+export const CHALLENGE_BAND = 0.1;
+/// Corroboration within a band, in band-fraction units so it can never cross
+/// a band boundary. Different people on opposing sides is the strongest
+/// evidence the question is live.
+export const BOTH_SIDES_CREDIT = 0.5;
+/// Per additional DISTINCT PERSON on the question (not per cast — one author
+/// posting four times is not four people).
+export const PER_AUTHOR_CREDIT = 0.12;
+export const MAX_AUTHOR_CREDIT = 0.4;
 /// Confidence gates rather than boosts: a shaky extraction shouldn't ride a
 /// high challengeability score to the top.
 export const CONFIDENCE_FLOOR = 0.5;
@@ -127,19 +144,23 @@ export function scoreCluster(members: Member[]): {
   const peakChallenge = Math.max(...members.map((m) => m.challengeability));
   const peakConfidence = Math.max(...members.map((m) => m.confidence));
   const bothSides = bothSidesOf(members);
+  const people = new Set(members.map((m) => identity(m.cast))).size;
 
-  const sizeBoost = Math.min(
-    1 + PER_MEMBER_BOOST * (members.length - 1),
-    MAX_SIZE_BOOST,
+  // Confidence gates the challengeability estimate before banding, so a
+  // shaky extraction drops a tier rather than riding one.
+  const gated =
+    peakChallenge * (CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * peakConfidence);
+
+  const band = Math.floor(gated / CHALLENGE_BAND);
+  const credit = Math.min(
+    1,
+    (bothSides ? BOTH_SIDES_CREDIT : 0) +
+      Math.min(PER_AUTHOR_CREDIT * (people - 1), MAX_AUTHOR_CREDIT),
   );
-  const confidenceGate =
-    CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * peakConfidence;
 
-  const score =
-    peakChallenge *
-    confidenceGate *
-    sizeBoost *
-    (bothSides ? BOTH_SIDES_BOOST : 1);
+  // Band dominates; credit only orders within it. Keeping the result on the
+  // same 0..1-ish scale as before so existing report output stays readable.
+  const score = (band + credit) * CHALLENGE_BAND;
 
   return { score, bothSides };
 }
