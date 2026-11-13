@@ -173,14 +173,21 @@ challengeability ∈ [0, 1]. Score it on three things:
 2. **Specificity.** Is there a concrete thing to be right or wrong about? Named
    entities, a real decision, a stated magnitude. Vague gestures at vibes
    ("crypto is in a weird place") score low even when people would disagree.
-3. **Stakes.** Does the answer matter to anyone beyond the caster? Personal
-   taste with no broader implication scores low.
+3. **Stakes.** Would people care enough to argue? Consequence counts, but
+   it is not the only thing that does: a claim about what is good or right
+   *in general* ("ketchup only belongs on hot dogs", "pineapple belongs on
+   pizza", "tabs beat spaces") draws a crowd that splits, even when nothing
+   serious rides on the answer. Score those in the soft-but-arguable range.
+   What scores low is a report of the caster's OWN preference ("I like dark
+   mode", "I could eat tacos every day"): it is a fact about them, so there
+   is nothing for anyone to disagree with.
 
 Calibration:
 - 0.8+  : genuinely divisive, specific, consequential. "The $SNAP airdrop rewarded farmers over real users." Real people would line up on both sides.
 - 0.5-0.8: arguable but either soft or niche. "Base has the best developer experience of the L2s."
+- 0.4-0.6: a low-stakes taste claim about the world that people genuinely split on. "Ketchup is only good on hot dogs." "Pineapple belongs on pizza."
 - 0.2-0.5: technically an opinion, but the other side is thin or the claim is too vague to contest. "Shipping fast is good."
-- < 0.2 : consensus restated as opinion, or purely personal taste. "Scams are bad." "I like dark mode."
+- < 0.2 : consensus restated as opinion, or a report of the caster's own preference. "Scams are bad." "I like dark mode."
 
 Score low and mean it. A feed of 0.4s is a dead feed, and inflating scores to be
 agreeable makes the ranking useless. Most casts that pass is_opinion should land
