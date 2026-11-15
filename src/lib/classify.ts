@@ -199,10 +199,21 @@ the opposing side would actually say, in one sentence, in plain language. Write
 "Plenty of people think the farmers were the intended users" — not "This claim
 exhibits moderate divisiveness along the fairness dimension."`;
 
+/** Default classifier model. The takes-client Worker runs claude-haiku-5-5 at effort "low". */
+export const CLASSIFY_MODEL = "claude-haiku-4-5";
+
 export async function classifyCast(opts: {
   text: string;
   parentText?: string;
   ogTags?: { title?: string; description?: string };
+  /**
+   * Image URLs attached to the cast, at most 4 (a cast's embed limit). Sent as image blocks
+   * ahead of the text; Anthropic fetches them, and a request whose image can't be fetched fails
+   * (the caller decides whether to retry without). With none, the request is unchanged.
+   */
+  images?: readonly string[];
+  model?: string;
+  effort?: "low" | "medium" | "high";
 }): Promise<ClassifyResult> {
   const userParts: string[] = [];
   if (opts.parentText) {
@@ -217,8 +228,17 @@ export async function classifyCast(opts: {
   }
   userParts.push(`<cast>${opts.text}</cast>`);
 
+  const images = (opts.images ?? []).slice(0, 4);
+  const content: Anthropic.ContentBlockParam[] | string = images.length === 0
+    ? userParts.join("\n\n")
+    : [
+        { type: "text", text: `The cast has ${images.length === 1 ? "this image" : `these ${images.length} images`} attached; they are part of what it says.` },
+        ...images.map((url): Anthropic.ImageBlockParam => ({ type: "image", source: { type: "url", url } })),
+        { type: "text", text: userParts.join("\n\n") },
+      ];
+
   const response = await client.messages.parse({
-    model: "claude-haiku-4-5",
+    model: opts.model ?? CLASSIFY_MODEL,
     max_tokens: 2048,
     system: [
       {
@@ -227,8 +247,8 @@ export async function classifyCast(opts: {
         cache_control: { type: "ephemeral" },
       },
     ],
-    messages: [{ role: "user", content: userParts.join("\n\n") }],
-    output_config: { format: zodOutputFormat(ClassifyResult) },
+    messages: [{ role: "user", content }],
+    output_config: { ...(opts.effort ? { effort: opts.effort } : {}), format: zodOutputFormat(ClassifyResult) },
   });
 
   if (!response.parsed_output) {

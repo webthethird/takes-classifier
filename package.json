@@ -11,7 +11,9 @@
     "render-feed": "tsx src/cli/render-feed.ts",
     "probe-neynar": "tsx src/cli/probe-neynar.ts",
     "test": "tsx src/cli/test.ts",
-    "audit-stances": "tsx src/cli/audit.ts"
+    "audit-stances": "tsx src/cli/audit.ts",
+    "image-cases": "tsx src/cli/image-cases.ts",
+    "eval-images": "tsx src/cli/eval-images.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
